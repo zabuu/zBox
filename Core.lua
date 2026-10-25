@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.2.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.3.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -59,8 +59,10 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and contract == 2 then
-      info.ready, info.label, info.version = true, "Native inputs 0.1.3", version
+    if ok and result == 1 and (contract == 2 or contract == 3) then
+      info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
+      info.npc = contract >= 3
+      info.mirror = contract >= 3
     else
       info.label = "Bridge update required"
     end
@@ -136,6 +138,8 @@ function B:Disconnect(reason)
   self.lastBarSnapshotID, self.heldInputs, self.heldMask = nil, {}, 0
   self.heldModifiers = {}
   self.castRequestAt, self.lastCastSignal, self.lastCastFeedbackAt = nil, nil, nil
+  self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
+  self.mirrorPaused, self.lastMirrorAt = true, nil
   if self.UI then
     self.UI.held, self.UI.hovered = nil, nil
     self.UI:CancelMove()
@@ -160,13 +164,17 @@ end
 function B:Command(command, fields)
   if not self.connected or self.db.role ~= "control" then return false, "Not connected" end
   fields = fields or {}
-  if command == "STOP" or command == "FOLLOW" or command == "MOVETO" or command == "ACTION" or command == "SPELL" then
+  if command == "FOLLOW" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" then
+    self.mirrorPaused = true
+  end
+  if command == "STOP" or command == "FOLLOW" or command == "MOVETO" or command == "ACTION" or command == "SPELL" or command == "TALK" or command == "NPC" then
     self.heldInputs, self.heldMask = {}, 0
     self.heldModifiers = {}
     if self.UI then self.UI.held = nil end
   end
   table.insert(fields, 1, command)
   if command == "STOP" then
+    self.mirrorPaused = true
     self:SendNow("CMD", fields)
     self.notice = "Emergency stop sent"
     return true
@@ -197,6 +205,7 @@ function B:Initialize()
   end
   self.lastHello, self.lastHeartbeat, self.lastStatus = -10, -10, -10
   self.ready = true
+  self:HookMirrorJump()
   if self.UI then self.UI:Create() end
   self:Print("Loaded " .. self.version .. ". /zbox opens the panel; /zbox help explains pairing.")
 end
@@ -219,6 +228,10 @@ function B:Slash(message)
     if self.UI then self.UI:ArmMove() end
   elseif command == "keys" then
     if self.UI then self.UI:ShowKeys() end
+  elseif command == "mirror" then
+    if rest == "off" then self:SetMirrorMode(false)
+    elseif rest == "pause" then if self.connected then self:Command("STOP") end
+    else local ok, reason = self:SetMirrorMode(true); if not ok then self:Notify(reason) end end
   elseif command == "scale" then
     if self.UI then
       local ok, reason = self.UI:SetScale(rest == "reset" and 0.85 or rest)
@@ -234,6 +247,7 @@ function B:Slash(message)
     self:Print("Click-to-move needs zAPI and GetPlayerFacing; zBoxBridge enables protected inputs.")
     self:Print("/zbox diag reports input bridge versions and the last operation on both clients.")
     self:Print("/zbox scale 0.75 changes panel size; /zbox scale reset restores 85%.")
+    self:Print("/zbox mirror enables movement/heading/jump mirroring; /zbox mirror pause stops it; /zbox mirror off selects Follow mode.")
   else
     if self.UI then self.UI:Toggle() end
   end
@@ -258,6 +272,15 @@ frame:RegisterEvent("SPELLCAST_START")
 frame:RegisterEvent("SPELLCAST_STOP")
 frame:RegisterEvent("SPELLCAST_FAILED")
 frame:RegisterEvent("SPELLCAST_INTERRUPTED")
+frame:RegisterEvent("SPELLCAST_CHANNEL_START")
+frame:RegisterEvent("SPELLCAST_CHANNEL_STOP")
+frame:RegisterEvent("SPELLCAST_DELAYED")
+frame:RegisterEvent("SPELLCAST_CHANNEL_UPDATE")
+local npcEvents = { "GOSSIP_SHOW", "GOSSIP_CLOSED", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_FINISHED",
+  "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_CLOSED" }
+local npcEventSet = {}
+for _, name in ipairs(npcEvents) do frame:RegisterEvent(name); npcEventSet[name] = true end
+frame:RegisterEvent("QUEST_LOG_UPDATE")
 frame:SetScript("OnEvent", function()
   if event == "PLAYER_LOGIN" then B:Initialize(); return end
   if not B.ready then return end
@@ -271,11 +294,20 @@ frame:SetScript("OnEvent", function()
     B.lastHello = -10
   elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
     if not B:IsEnabled() then B:Disconnect("Peer is not in the group") end
+  elseif npcEventSet[event] then
+    if B.db.role == "agent" then B:NPCEvent(event) end
+  elseif event == "QUEST_LOG_UPDATE" then
+    if not B.questReadUntil or GetTime() > B.questReadUntil then
+      B.questCache = nil
+      B.viewDirty = true
+      if B.UI then B.UI.dirty = true end
+    end
   elseif event == "UI_ERROR_MESSAGE" then
     if B.connected and B.db.role == "agent" and B.lastCommandAt and GetTime() - B.lastCommandAt < 2 then
       B:Send("ERROR", { tostring(arg1 or "Game action failed") }, true)
     end
-  elseif event == "SPELLCAST_START" or event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" then
+  elseif event == "SPELLCAST_START" or event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" or event == "SPELLCAST_CHANNEL_START" or event == "SPELLCAST_CHANNEL_STOP" or event == "SPELLCAST_DELAYED" or event == "SPELLCAST_CHANNEL_UPDATE" then
+    if B.db.role == "agent" then B:CastEvent(event, arg2 or arg1) end
     if B.connected and B.db.role == "agent" and B.castRequestAt and GetTime() - B.castRequestAt < 8 then
       B.lastCastSignal = event .. (arg1 and (": " .. tostring(arg1)) or "")
       B:Send("STATE", { "cast", event, tostring(arg1 or "") }, true)

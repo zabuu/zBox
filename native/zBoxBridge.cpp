@@ -4,6 +4,7 @@
 #include <cstring>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include "MinHook.h"
 #include "ScopedInvoke.h"
 
@@ -63,7 +64,8 @@ uint32_t *bindingFlag() {
 int validate(void *L, const char *name) {
   const char *noArgs[] = { "MoveForwardStart", "MoveForwardStop", "MoveBackwardStart", "MoveBackwardStop",
     "TurnLeftStart", "TurnLeftStop", "TurnRightStart", "TurnRightStop", "StrafeLeftStart", "StrafeLeftStop",
-    "StrafeRightStart", "StrafeRightStop", "Jump", "SpellStopCasting", "SpellStopTargeting", "AttackTarget", "ClearTarget" };
+    "StrafeRightStart", "StrafeRightStop", "Jump", "SpellStopCasting", "SpellStopTargeting", "AttackTarget", "ClearTarget",
+    "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer" };
   for (const char *allowed : noArgs) if (!std::strcmp(name, allowed)) return 0;
   if (!std::strcmp(name, "TargetUnit") || !std::strcmp(name, "FollowUnit") || !std::strcmp(name, "AssistUnit"))
     return unit(L, 2) ? 1 : -1;
@@ -78,7 +80,85 @@ int validate(void *L, const char *name) {
     return number(L, 2, 0, 19) ? 1 : -1;
   if (!std::strcmp(name, "LearnTalent"))
     return number(L, 2, 1, 3) && number(L, 3, 1, 40) ? 2 : -1;
+  const char *npcSelection[] = { "SelectGossipOption", "SelectGossipAvailableQuest", "SelectGossipActiveQuest",
+    "SelectAvailableQuest", "SelectActiveQuest", "BuyTrainerService" };
+  for (const char *allowed : npcSelection) if (!std::strcmp(name, allowed)) return number(L, 2, 1, 240) ? 1 : -1;
+  if (!std::strcmp(name, "GetQuestReward")) return number(L, 2, 0, 10) ? 1 : -1;
+  if (!std::strcmp(name, "BuyMerchantItem")) return number(L, 2, 1, 240) && number(L, 3, 1, 200) ? 2 : -1;
   return -1;
+}
+
+bool interact(uint64_t guid) {
+  // Verified in the supported executable: lookup reads the GUID on the stack,
+  // ret 8; CUnit right-click takes ECX=this and one stack argument, ret 4.
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  using RightClick = void(__thiscall *)(uintptr_t, int);
+  __try {
+    if (!guid || !*at<uint8_t *>(0x00B4B424)) return false;
+    const uintptr_t manager = *at<uintptr_t *>(0x00B41414);
+    if (!manager) return false;
+    const uintptr_t object = at<Lookup>(0x00464870)(guid);
+    const uintptr_t player = at<Lookup>(0x00464870)(*reinterpret_cast<uint64_t *>(manager + 0xC0));
+    if (!object || !player) return false;
+    const uintptr_t descriptor = *reinterpret_cast<uintptr_t *>(object + 8);
+    const uint32_t types = *reinterpret_cast<uint32_t *>(descriptor + 8);
+    if ((types & 8) == 0 || (types & 16) != 0) return false;
+    const float *a = reinterpret_cast<float *>(object + 0x9B8);
+    const float *b = reinterpret_cast<float *>(player + 0x9B8);
+    const float distance = (a[0]-b[0])*(a[0]-b[0]) + (a[1]-b[1])*(a[1]-b[1]) + (a[2]-b[2])*(a[2]-b[2]);
+    if (!std::isfinite(distance) || distance > 36) return false;
+    at<RightClick>(0x0060BEA0)(object, 0);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+uintptr_t localPlayer() {
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  if (!*at<uint8_t *>(0x00B4B424)) return 0;
+  const uintptr_t manager = *at<uintptr_t *>(0x00B41414);
+  return manager ? at<Lookup>(0x00464870)(*reinterpret_cast<uint64_t *>(manager + 0xC0)) : 0;
+}
+
+bool stopFollow() {
+  using CancelMovement = void(__thiscall *)(uintptr_t, int, int);
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player) return false;
+    // Same cancellation used by the normal input controller (0x5146D6).
+    // Clear CTM/follow GUID and stop its movement; ECX=player, ret 8.
+    at<CancelMovement>(0x0060FB60)(player, 0, 1);
+    return *at<uint32_t *>(0x00C4D888) != 3;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool readInputs(int &mask, float &heading) {
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player) return false;
+    const uint32_t flags = *reinterpret_cast<uint32_t *>(player + 0x9E8);
+    heading = *reinterpret_cast<float *>(player + 0x9C4);
+    mask = (flags & 3) | ((flags & 0x30) >> 2) | ((flags & 0xC) << 2);
+    if (!std::isfinite(heading) || heading < -0.01f || heading > 6.30f) return false;
+    heading = std::fmod(heading, 6.283185307179586f);
+    if (heading < 0) heading += 6.283185307179586f;
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool setHeading(float heading) {
+  using SetFacing = void(__thiscall *)(uintptr_t, float);
+  using SendMovement = int(__thiscall *)(uintptr_t, uint32_t, uint32_t, float, uint32_t);
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player) return false;
+    const float current = *reinterpret_cast<float *>(player + 0x9C4);
+    if (std::fabs(current - heading) < 0.002f) return true;
+    // CMovement::SetFacing: ECX=player+0x9A8, float on stack, ret 4.
+    // CGUnit::SendMovement: ECX=player, timestamp/opcode/0.0/0, ret 16.
+    at<SetFacing>(0x007C6F30)(player + 0x9A8, heading);
+    at<SendMovement>(0x00600A30)(player, GetTickCount(), 0xDA, 0.0f, 0);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 int response(void *L, bool ok, const char *detail) {
@@ -90,16 +170,53 @@ int response(void *L, bool ok, const char *detail) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.3");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.4");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.3");
-    at<PushNumber>(0x006F3810)(L, 2);
+    response(L, true, "zBoxBridge 0.1.4");
+    at<PushNumber>(0x006F3810)(L, 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.3; calls=%lu; last=%s; result=%d", calls, lastCommand, lastResult);
+    sprintf_s(detail, "zBoxBridge 0.1.4; calls=%lu; last=%s; result=%d", calls, lastCommand, lastResult);
     return response(L, true, detail);
+  }
+  if (!std::strcmp(name, "inputs")) {
+    int mask = 0; float heading = 0;
+    if (!readInputs(mask, heading)) return response(L, false, "Player input state is unavailable");
+    at<PushNumber>(0x006F3810)(L, 1);
+    at<PushNumber>(0x006F3810)(L, mask);
+    at<PushNumber>(0x006F3810)(L, heading);
+    return 3;
+  }
+  if (!std::strcmp(name, "StopFollow")) {
+    if (InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Input busy");
+    const bool result = stopFollow();
+    InterlockedExchange(&busy, 0);
+    ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
+    return response(L, result, result ? "Native follow cancelled" : "Could not cancel native follow");
+  }
+  if (!std::strcmp(name, "SetHeading")) {
+    if (type(L, 2) != 3) return response(L, false, "Expected heading in radians");
+    const double heading = at<ToNumber>(0x006F3620)(L, 2);
+    if (!std::isfinite(heading) || heading < 0 || heading >= 6.283186 ||
+        InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Invalid heading or input busy");
+    const bool result = setHeading(static_cast<float>(heading));
+    InterlockedExchange(&busy, 0);
+    ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
+    return response(L, result, result ? "Heading matched" : "Heading update failed");
+  }
+  if (!std::strcmp(name, "InteractNPC")) {
+    if (type(L, 2) != 4) return response(L, false, "Expected NPC GUID");
+    const char *guidText = str(L, 2);
+    if (!guidText || std::strlen(guidText) != 18 || guidText[0] != '0' || guidText[1] != 'x') return response(L, false, "Invalid NPC GUID");
+    char *end = nullptr;
+    const uint64_t guid = std::strtoull(guidText + 2, &end, 16);
+    if (!end || *end || InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Invalid or busy NPC interaction");
+    const bool result = interact(guid);
+    InterlockedExchange(&busy, 0);
+    ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
+    return response(L, result, result ? "Interaction requested" : "NPC is unavailable or out of range");
   }
   const int arguments = validate(L, name);
   if (arguments < 0) return response(L, false, "API or arguments are not allowed");

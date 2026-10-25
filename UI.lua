@@ -57,7 +57,33 @@ function U:SetScale(value)
   self.frame:SetScale(value)
   if self.pad then self.pad:SetScale(value) end
   if self.scaleLabel then self.scaleLabel:SetText(string.format("%.0f%%", value * 100)) end
+  self:PlacePanels()
   return true
+end
+
+function U:PlacePanel(panel, right)
+  if not panel then return end
+  local scale = self.frame:GetEffectiveScale()
+  local top, bottom = self.frame:GetTop(), self.frame:GetBottom()
+  if not top or not bottom then return end
+  local screen = UIParent:GetHeight() * UIParent:GetEffectiveScale()
+  local above, below = math.max(0, screen - top * scale - 5 * scale), math.max(0, bottom * scale - 5 * scale)
+  local height = panel:GetHeight() * scale
+  local down = above < height and below > above
+  local room = down and below or above
+  panel:SetScale(math.min(1, room / math.max(1, height)))
+  panel:ClearAllPoints()
+  local edge = right and "RIGHT" or "LEFT"
+  panel:SetPoint((down and "TOP" or "BOTTOM") .. edge, self.frame, (down and "BOTTOM" or "TOP") .. edge, 0, down and -5 or 5)
+  panel:SetFrameStrata("DIALOG")
+  panel:SetFrameLevel(self.frame:GetFrameLevel() + 25)
+end
+
+function U:PlacePanels()
+  if not self.frame then return end
+  self:PlacePanel(self.browser)
+  self:PlacePanel(self.setup)
+  self:PlacePanel(self.keys, true)
 end
 
 function U:Run(command, fields)
@@ -82,6 +108,7 @@ function U:Create()
     this:StopMovingOrSizing()
     local point, _, relative, x, y = this:GetPoint()
     if point and relative and x and y then B.db.position = { point, relative, x, y } end
+    U:PlacePanels()
   end)
   f:SetScript("OnHide", function()
     U:CancelMove(); U:ReleaseAxis()
@@ -122,7 +149,20 @@ function U:Create()
     GameTooltip:Show()
   end)
   self.targetMode:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  compactButton(f, "Follow", 224, -84, 76, function() U:Run("FOLLOW") end)
+  self.followButton = compactButton(f, "Follow", 224, -84, 76, function()
+    if arg1 == "RightButton" then
+      local ok, reason = B:SetMirrorMode(not B.db.mirrorMovement)
+      if not ok then B:Notify(reason) end
+    elseif B.db.mirrorMovement then B:ToggleMirrorPause()
+    else U:Run("FOLLOW") end
+  end)
+  self.followButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  self.followButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP"); GameTooltip:SetText("Movement mode")
+    GameTooltip:AddLine("Right-click: switch Follow / Mirror. In Mirror mode, click to pause or resume.", 0.7, 0.9, 0.85, true)
+    GameTooltip:AddLine("Mirror copies your movement, jump and character heading, including mouse turning.", 0.7, 0.9, 0.85, true); GameTooltip:Show()
+  end)
+  self.followButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
   compactButton(f, "Move", 306, -84, 76, function() U:ArmMove() end)
   local stop = compactButton(f, "STOP", 388, -84, 96, function() U:Run("STOP") end)
   stop.caption:SetTextColor(1, 0.4, 0.36)
@@ -152,10 +192,10 @@ function U:CreateBrowser()
   f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 0.97); f:EnableMouse(true)
   self.tabs, self.targetButtons = {}, {}
   local tabs = { { "Actions", "actions" }, { "Spells", "spells" }, { "Bags", "bags" },
-    { "Gear", "gear" }, { "Talents", "talents" } }
+    { "Gear", "gear" }, { "Talents", "talents" }, { "Quests", "quests" }, { "NPC", "npc" } }
   for i = 1, table.getn(tabs) do
     local entry = tabs[i]
-    local b = button(f, entry[1], 12 + (i - 1) * 96, -10, 88, function()
+    local b = button(f, entry[1], 12 + (i - 1) * 68, -10, 64, function()
       B:Request(this.section, 1); U:Refresh()
     end)
     b.section = entry[2]; self.tabs[i] = b
@@ -164,11 +204,15 @@ function U:CreateBrowser()
   self.pageLabel = label(f, "1 / 10", 9, 40, -50, 40)
   button(f, ">", 84, -43, 22, function() U:Page(1) end)
   self.viewTitle = label(f, "", 10, 116, -50, 196)
-  button(f, "Move pad", 318, -43, 80, function()
-    if U.pad:IsShown() then U.pad:Hide() else U.pad:Show() end
+  self.viewTitle:SetHeight(14)
+  self.aux = button(f, "Move pad", 318, -43, 80, function()
+    if B.view == "npc" then U:Run("TALK", { B:GUID("target") })
+    elseif B.view == "quests" then U.questMainOnly = not U.questMainOnly; U.questPage = 1; U:Refresh()
+    elseif U.pad:IsShown() then U.pad:Hide() else U.pad:Show() end
   end)
   button(f, "Refresh", 404, -43, 80, function() B:Request(B.view, B.page) end)
   self.help = label(f, "", 9, 12, -76, 472)
+  self.help:SetHeight(20)
   self.content = CreateFrame("Frame", nil, f)
   self.content:SetWidth(472); self.content:SetHeight(270)
   self.content:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -99)
@@ -205,6 +249,9 @@ function U:CreateCell(index, parent, dock)
   cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   cell:RegisterForDrag("LeftButton")
   cell:SetScript("OnDragStart", function() U:Drag(this) end)
+  cell:SetScript("OnDragStop", function()
+    this.dragging, this.ignoreClickUntil = nil, GetTime() + 0.4
+  end)
   cell.icon = cell:CreateTexture(nil, "ARTWORK")
   cell.icon:SetWidth(32); cell.icon:SetHeight(32); cell.icon:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
   cell.icon:SetTexCoord(0.06, 0.94, 0.06, 0.94)
@@ -224,21 +271,26 @@ function U:CreateCell(index, parent, dock)
   cell:SetScript("OnEnter", function() U:Tooltip(this) end)
   cell:SetScript("OnLeave", function() U.hovered = nil; GameTooltip:Hide() end)
   cell:SetScript("OnClick", function()
-    if not this.ignoreClickUntil or GetTime() > this.ignoreClickUntil then U:Click(this, arg1) end
+    if not this.dragging and (not this.ignoreClickUntil or GetTime() > this.ignoreClickUntil) then U:Click(this, arg1) end
   end)
   if dock then cell.name:Hide(); cell.sub:Hide() end
   return cell
 end
 
 function U:Drag(cell)
+  cell.dragging = true
   cell.ignoreClickUntil = GetTime() + 0.4
   local ok, reason = B:PickupRemote(cell.section, cell.row)
   if reason then B:Notify(reason) end
 end
 
 function U:Page(delta)
+  if B.view == "quests" and self.questMainOnly then
+    self.questPage = math.max(1, math.min(math.max(1, math.ceil(table.getn(B:MainOnlyQuests()) / 5)), (self.questPage or 1) + delta))
+    self:Refresh(); return
+  end
   local view = B.cache.view
-  local limits = { actions = 10, spells = 40, bags = 5, gear = 1, talents = 3 }
+  local limits = { actions = 10, spells = 40, bags = 5, gear = 1, talents = 3, quests = 8, npc = 40 }
   local maxPage = view and view.section == B.view and view.maximum or limits[B.view]
   local page = math.max(1, math.min(maxPage, B.page + delta))
   B:Request(B.view, page)
@@ -253,7 +305,14 @@ function U:Tooltip(cell)
   elseif cell.section == "gear" and row[4] ~= "" then GameTooltip:SetHyperlink(row[4])
   else
     GameTooltip:SetText(cell.tooltip or cell.name:GetText() or "")
-    if cell.section == "talents" then
+    if cell.section == "quests" then
+      GameTooltip:AddLine("Account 2: " .. row[5] .. "\n" .. row[7], 0.7, 0.9, 0.85, true)
+      GameTooltip:AddLine(B:QuestComparison(row), 0.9, 0.85, 0.65, true)
+    elseif cell.section == "npc" then
+      GameTooltip:AddLine(row[4], 0.7, 0.9, 0.85, true)
+      if row[9] == "0" then GameTooltip:AddLine("Unavailable", 1, 0.4, 0.3) end
+      if row[6] == "buy" or row[6] == "train" or row[6] == "reward" then GameTooltip:AddLine("Click once to review, then click again to confirm.", 1, 0.8, 0.3, true) end
+    elseif cell.section == "talents" then
       GameTooltip:AddLine("Rank " .. row[6] .. " / " .. row[7], 1, 1, 1)
       GameTooltip:AddLine("Click to spend ONE talent point on account 2.", 0.5, 0.9, 0.8, true)
       GameTooltip:AddLine("Normal level, tier and prerequisite rules apply.", 0.8, 0.8, 0.8, true)
@@ -286,7 +345,26 @@ end
 function U:Click(cell, mouse)
   local row = cell.row
   if not row or not B.connected then return end
-  if cell.section == "actions" then
+  if mouse == "LeftButton" and IsShiftKeyDown() and (cell.section == "actions" or cell.section == "spells") then
+    local ok, reason = B:PickupRemote(cell.section, row)
+    if reason then B:Notify(reason) end
+    return
+  end
+  if cell.section == "quests" then
+    self:Tooltip(cell)
+  elseif cell.section == "npc" then
+    if mouse ~= "LeftButton" then return end
+    if row[9] == "0" then B:Notify("This service is unavailable"); return end
+    if row[6] == "buy" or row[6] == "train" or row[6] == "reward" then
+      if self.npcConfirm ~= row[5] or GetTime() > (self.npcConfirmUntil or 0) then
+        self.npcConfirm, self.npcConfirmUntil = row[5], GetTime() + 8
+        B:Notify("Click again to confirm: " .. row[3] .. (tonumber(row[7]) > 0 and (" - " .. B:Money(row[7])) or ""))
+        return
+      end
+    end
+    self.npcConfirm = nil
+    self:Run("NPC", { row[6], row[1], row[5] })
+  elseif cell.section == "actions" then
     if row[2] == "" then return end
     self:Run("ACTION", { row[1], row[4], B:TargetDescriptor(mouse == "RightButton") })
   elseif cell.section == "spells" then
@@ -317,16 +395,23 @@ end
 function U:Refresh()
   if not self.frame then return end
   local view = B.cache.view
+  if B.view == "quests" and self.questMainOnly and B.cache.questKeys then
+    local all, rows, page = B:MainOnlyQuests(), {}, self.questPage or 1
+    for i = (page-1)*5+1, math.min(page*5, table.getn(all)) do table.insert(rows, all[i]) end
+    view = { section = "quests", page = B.page, rows = rows, title = "Main only - missing on account 2", maximum = math.max(1, math.ceil(table.getn(all)/5)), displayPage = page }
+  end
   self.connection:SetText(B.connected and ((B.db.peer or "") .. "  /  Connected") or
     (B.db.enabled and ("Waiting for " .. (B.db.peer or "peer") .. " in your group") or "Not paired"))
   self.connection:SetTextColor(B.connected and 0.3 or 1, B.connected and 0.95 or 0.7, 0.7)
   local status = B.cache.status
+  self.followButton.caption:SetText(B.db.mirrorMovement and (B.mirrorPaused and "Mirror II" or "Mirror ON") or "Follow")
+  if self.modeButton then self.modeButton.caption:SetText(B.db.mirrorMovement and "Mirror movement" or "Follow mode") end
   if status then
     self.health:SetText("HP " .. status[5] .. "/" .. status[6] .. "    Power " .. status[7] .. "/" .. status[8])
     local movement = status[13] == "Moving to point" and "Moving" or (status[13] == "Following" and "Follow" or status[13])
     self.power:SetText(movement == "Idle" and status[10] == "1" and "Combat" or movement)
     self.target:SetText(status[9])
-    if status[14] == "Native inputs 0.1.3" then self.power:Show(); self.inputMode:Hide()
+    if string.find(status[14], "^Native inputs ") then self.power:Show(); self.inputMode:Hide()
     else self.power:Hide(); self.inputMode:SetText("Input update"); self.inputMode:Show() end
   else
     self.health:SetText(B.db.role == "agent" and "Agent mode: controlled by " .. (B.db.peer or "") or "Account 2 is not connected")
@@ -341,10 +426,14 @@ function U:Refresh()
     if B.view == "talents" then
       bodyHeight = 48
       for i = 1, count do bodyHeight = math.max(bodyHeight, tonumber(view.rows[i][4]) * 33) end
+    elseif B.view == "quests" or B.view == "npc" then
+      bodyHeight = math.max(48, count * (B.view == "quests" and 65 or 48))
     end
   end
   self.content:SetHeight(bodyHeight)
   self.browser:SetHeight(99 + bodyHeight + 32)
+  self:PlacePanels()
+  self.aux.caption:SetText(B.view == "npc" and "Talk" or (B.view == "quests" and (self.questMainOnly and "Alt quests" or "Main only") or "Move pad"))
   self.selectionText:ClearAllPoints()
   self.selectionText:SetPoint("TOPLEFT", self.browser, "TOPLEFT", 12, -99 - bodyHeight - 9)
   self.barPage:SetText(tostring(B.actionPage) .. "/10")
@@ -376,7 +465,7 @@ function U:Refresh()
     self.empty:Show()
   else
     self.viewTitle:SetText(view.title)
-    self.pageLabel:SetText(view.page .. " / " .. view.maximum)
+    self.pageLabel:SetText((view.displayPage or view.page) .. " / " .. view.maximum)
     for i = 1, math.min(48, table.getn(view.rows)) do self:RenderCell(self.cells[i], view.rows[i], i, view.section) end
     if table.getn(view.rows) == 0 then self.empty:SetText("This page is empty."); self.empty:Show() end
   end
@@ -384,9 +473,13 @@ function U:Refresh()
     spells = "Click to cast. Drag a spell onto your bars. Passive spells cannot be used.",
     bags = "Left click selects an item for equipping. Right click uses it on account 2.",
     gear = "Select an item in Bags, then click its slot. Shift-click gear to unequip.",
-    talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites." }
+    talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites.",
+    quests = "Alt progress and main progress. Hover for objectives. Main only shows missing questlines.",
+    npc = "Target an NPC and click Talk. Account 2 must be nearby. Purchases require a second click." }
   self.help:SetText(help[B.view])
-  self.selectionText:SetText(B.bagSelection and ("Selected: " .. B.bagSelection.link) or "")
+  if B.view == "npc" and self.npcConfirm and GetTime() < (self.npcConfirmUntil or 0) then
+    self.selectionText:SetText("Click the same offer again to confirm. Prices are checked on account 2.")
+  else self.selectionText:SetText(B.bagSelection and ("Selected: " .. B.bagSelection.link) or "") end
   local notice = B.notice or ""
   if notice ~= self.lastNotice then
     self.lastNotice, self.noticeUntil = notice, GetTime() + 3
@@ -421,13 +514,27 @@ function U:RenderCell(cell, row, index, section)
     col, line, xstep, ystep = tonumber(row[5]) - 1, tonumber(row[4]) - 1, 118, 33
     icon, name, sub = row[3], row[2], ""
     cell.count:SetText(row[6] .. "/" .. row[7])
+  elseif section == "quests" then
+    col, line, xstep, ystep = 0, index-1, 472, 65
+    icon, name = "Interface\\Icons\\INV_Misc_Note_01", "[" .. row[4] .. "] " .. row[3]
+    sub = (self.questMainOnly and "Main: " or "Alt: ") .. row[5] .. " - " .. row[7]
+    if not self.questMainOnly then sub = sub .. "\n" .. B:QuestComparison(row) else sub = sub .. "\nAlt: not in quest log" end
+    cell.count:SetText("")
+  elseif section == "npc" then
+    col, line, xstep, ystep = 0, index-1, 472, 48
+    icon, name, sub = row[2], row[3], row[4]
+    cell.count:SetText("")
   end
   if not cell.isDock then
     cell:ClearAllPoints()
     cell:SetPoint("TOPLEFT", self.content, "TOPLEFT", col * xstep + 2, -line * ystep)
-    cell:SetWidth(section == "bags" and 44 or 115)
+    cell:SetWidth((section == "quests" or section == "npc") and 468 or (section == "bags" and 44 or 115))
   end
-  cell:SetHeight(cell.isDock and 32 or (section == "talents" and 32 or 43))
+  local wide = section == "quests" or section == "npc"
+  cell:SetHeight(cell.isDock and 32 or (wide and ystep-2 or (section == "talents" and 32 or 43)))
+  cell.name:SetWidth(wide and 425 or 75); cell.name:SetHeight(wide and 14 or 29)
+  cell.sub:ClearAllPoints(); cell.sub:SetPoint("TOPLEFT", cell, "TOPLEFT", 38, wide and -17 or -30)
+  cell.sub:SetWidth(wide and 425 or 75); cell.sub:SetHeight(section == "quests" and 42 or 22)
   cell.name:SetText(name); cell.sub:SetText(sub); cell.tooltip = name
   cell.icon:SetTexture(icon ~= "" and icon or "Interface\\PaperDoll\\UI-Backpack-EmptySlot")
   cell.icon:SetVertexColor(1, 1, 1)
@@ -438,7 +545,7 @@ end
 function U:CreateSetup()
   local f = CreateFrame("Frame", nil, self.frame)
   self.setup = f
-  f:SetWidth(450); f:SetHeight(318); f:SetPoint("BOTTOMLEFT", self.frame, "TOPLEFT", 0, 5)
+  f:SetWidth(450); f:SetHeight(348); f:SetPoint("BOTTOMLEFT", self.frame, "TOPLEFT", 0, 5)
   f:SetFrameLevel(self.frame:GetFrameLevel() + 15); f:SetClampedToScreen(true)
   f:EnableMouse(true); f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1)
   label(f, "Pair characters", 13, 16, -16)
@@ -458,9 +565,14 @@ function U:CreateSetup()
   self.scaleLabel = label(f, "85%", 10, 170, -249, 42)
   compactButton(f, "+", 216, -243, 28, function() U:SetScale(math.min(1.25, (B.db.uiScale or 0.85) + 0.05)) end)
   compactButton(f, "Reset", 258, -243, 72, function() U:SetScale(0.85) end)
-  button(f, "Disable / revoke", 16, -278, 170, function() B:Slash("off"); U:Refresh() end)
-  button(f, "Diagnostics", 196, -278, 128, function() B:Slash("diag") end)
-  button(f, "Close", 334, -278, 82, function() f:Hide() end)
+  label(f, "Movement mode", 10, 16, -280, 114)
+  self.modeButton = compactButton(f, "Follow mode", 130, -274, 200, function()
+    local ok, reason = B:SetMirrorMode(not B.db.mirrorMovement)
+    if not ok then B:Notify(reason) end
+  end)
+  button(f, "Disable / revoke", 16, -308, 170, function() B:Slash("off"); U:Refresh() end)
+  button(f, "Diagnostics", 196, -308, 128, function() B:Slash("diag") end)
+  button(f, "Close", 334, -308, 82, function() f:Hide() end)
   f:Hide()
 end
 
@@ -554,6 +666,7 @@ end
 function U:Tick(now)
   if not self.frame:IsShown() or now - self.lastTick < 0.15 then return end
   self.lastTick = now
+  self:PlacePanels()
   if self.dirty then self:Refresh() end
   if self.noticeUntil and now > self.noticeUntil then self.toast:Hide() end
   local cds = B.cache.cooldowns

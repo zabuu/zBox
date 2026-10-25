@@ -2,9 +2,10 @@
 
 A compact control panel for a second **WoW 1.12.1.5875** character on your own
 private test server. Control account 2 from account 1: remote action bars,
-spellbook, follow, movement, click-to-move, bags, equipment and talents.
+spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
+An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.2.1 | Native bridge 0.1.3 | Windows x86**
+**Addon 0.3.0 | Native bridge 0.1.4 | Windows x86**
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -49,8 +50,9 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-If you already have bridge **0.1.3** installed and enabled, keep using it. Addon
-updates that leave the bridge unchanged do not require repeating its setup.
+This release needs bridge **0.1.4** for NPC interactions and mirrored movement.
+Bridge 0.1.3 still supports the other controls, but must be replaced for the new
+features. Fully restart both clients after updating the DLL.
 
 The prebuilt bridge is also available separately under
 [Releases](https://github.com/zabuu/zBox/releases/latest). Its checksum is in
@@ -110,15 +112,20 @@ The panel is **496 x 110** at **85% scale** by default, approximately 422 x 94 U
 units before the game's UI scale. Drag its background to move it. Status
 messages appear briefly below the panel instead of occupying a permanent row.
 
-- **More** opens actions, spells, bags, gear and talents on demand.
+- **More** opens actions, spells, bags, gear, talents, quests and NPCs on demand.
+  Popouts open below the dock when space above is insufficient. They scale to
+  the available vertical space if neither side can fit them at full size.
 - **Keys** binds click-to-move, forward/backward, turning, strafing, follow,
   assist, jump, stop and the panel. Movement supports combined directions and
   works while the panel is hidden. Click a binding, then press a key combination
   or middle/extra mouse button; Escape cancels and Backspace clears it.
 - **Setup > Panel scale** changes size in 5% steps. `/zbox scale 0.75` sets 75%;
   `/zbox scale reset` restores 85%. Settings are saved per character.
-- **Follow** follows the main. Casting stops account 2's follow and movement
-  first, so account 1 can keep moving. Follow stays off until requested again.
+- **Follow** follows the main. Cast-time spells cancel native follow, release
+  every movement direction, then wait for account 2 to stop before casting.
+  Follow resumes after casting and after both characters leave combat, if it
+  was active before the cast. Stop, manual movement and NPC controls cancel
+  this resumption. Unknown macro cast times use the same stopping behavior.
 - **Move** arms a terrain click. Right-click or Escape cancels; a missed terrain
   trace keeps the picker open. **More > Move pad** has held direction buttons.
 - **STOP** cancels owned movement, follow and casting. It takes priority over
@@ -129,7 +136,8 @@ account 2, and account 2's current target. Right-click a skill to target account
 
 ### Put remote skills on your own bars
 
-Drag an active action or spell from zBox onto account 1's action bars. zBox
+Drag an active action or a spell from **More > Spells** onto account 1's action
+bars. Shift-click is an alternative way to pick one up. zBox
 creates a character macro with its icon. Click that macro, or use its normal
 bar keybinding, to request the skill on account 2. Hold Alt when using the macro
 to target account 2; otherwise it uses the selected zBox target mode.
@@ -154,6 +162,46 @@ In **Talents**, use the page arrows to choose a tree. Each click requests one
 rank. Wait for the updated rank before spending again. Normal prerequisites,
 points and server rules apply.
 
+### Quests and NPCs
+
+**More > Quests** shows account 2's quests and objectives with account 1's progress
+alongside them. Hover for full objective text. **Main only** lists questlines
+account 2 does not have; **Alt quests** returns to the remote log. Collapsed
+quest headers and the selected quest are restored after reading the log.
+
+For **More > NPC**, target a living friendly NPC on account 1, move account 2
+within six yards, then click **Talk**. Gossip choices, available/current quests,
+quest acceptance, completion and reward choices appear in the panel. Account 2
+must have the NPC loaded and remain within its normal interaction range.
+
+Vendor offers show the price and number of items. Each purchase buys **one
+offer**, including its normal bundle size. Trainer services show cost and
+availability. Click a purchase, training service or reward once to review and
+again within eight seconds to confirm. Stale dialogs, changed prices, duplicate
+requests and insufficient money reject the action. There is no automatic buying,
+training, quest acceptance or reward selection. Vendors currently support buying;
+selling, buyback and repair controls are not included.
+
+### Mirror movement and mouse heading
+
+Right-click **Follow** to switch between Follow mode and **Mirror movement**, or
+choose the mode in **Setup**. In Mirror mode, left-click the same button to pause
+or resume. `/zbox mirror`, `/zbox mirror pause` and `/zbox mirror off` provide the
+same controls. Mirror starts paused after reconnecting; click to resume.
+
+The bridge reads account 1's actual movement flags and character heading. This
+captures WASD, strafing, right-mouse turning and mouse-button movement without
+changing your bindings. Jump is mirrored through the normal Jump API. Rotating
+the camera with left mouse alone does not turn the character, so it does not turn
+account 2 either. Absolute heading updates keep camera-driven movement aligned.
+
+Start with the characters together and facing the same direction. Mirror mode
+sends movement and heading, not positions: latency, unequal movement speeds,
+collisions and obstacles can cause drift. Reposition them when needed. A cast-time
+spell holds account 2 still; current mirrored inputs resume after the cast. Follow
+is not invoked. STOP pauses mirroring until resumed; direct account-2 movement,
+Follow and NPC controls also pause it. The panel may remain hidden.
+
 ## Limits and diagnostics
 
 - Click-to-move uses straight-line steering, with no pathfinding mesh. It stops
@@ -171,7 +219,7 @@ points and server rules apply.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.3**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.4**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -186,19 +234,21 @@ workload. The scripts locate it with `vswhere`.
 
 ```powershell
 python -m pip install -r tests\requirements.txt
-python tests\test_zbox.py
+python tests\test_features.py
+python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File Build-Package.ps1
 ```
 
-`bin/zBoxBridge.dll` is the distributed, previously tested bridge; its checksum
+`bin/zBoxBridge.dll` is the distributed bridge checked by the offline fixtures; its checksum
 is in `bin/SHA256SUMS.txt`. Local compilation writes `native/build/zBoxBridge.dll`
 and does not silently change the distributed DLL or an installed game client.
 
 The Lua fixtures cover isolated paired clients, replay/spoof rejection, casting,
 items/talents, 160 camera/viewport/UI-scale cases, movement leases, actual XML
-key-up bindings, remote macro exports, compact layouts and bindings. Native
+key-up bindings, remote macro exports, compact layouts, quest comparisons, NPC
+dialogs, one-off spending, cast pauses and movement/heading mirroring. Native
 fixtures verify input-context restoration after success, Lua errors, Windows
 exceptions and reentry, and reject an unsupported executable.
 

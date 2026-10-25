@@ -14,15 +14,33 @@ function B:SetAxis(axis, enabled)
   return ok, reason
 end
 
-function B:StopMovement()
+function B:StopMovement(preserveCast, force)
+  if not preserveCast then
+    self.pendingCast, self.resumeFollow, self.castingUntil, self.followQuietAt = nil, nil, nil, nil
+    self.mirrorInput = nil
+  end
   self.destination, self.manualMove, self.manualUntil = nil, nil, nil
   self.axes = self.axes or {}
   -- Also stop native follow/autorun, including after a panel reload or lost key-up.
   for axis, functions in pairs(axes) do
-    if self.axes[axis] then self:Invoke(functions[2]) end
+    if force or self.axes[axis] then self:Invoke(functions[2]) end
     self.axes[axis] = false
   end
-  if self.following then self:Invoke("MoveForwardStop"); self.following = nil end
+  if self.following or force then
+    -- 1.12 rejects FollowUnit("player"). Clear the actual follow generator.
+    if self:GetBridgeInfo().npc then
+      local ok, result, reason = pcall(zBoxNative, "StopFollow")
+      if not ok or result ~= 1 then return false, ok and reason or tostring(result) end
+    else
+      -- The older bridge can still use the ordinary movement-key path, whose
+      -- press transition cancels follow before its immediate release.
+      local ok, reason = self:Invoke("MoveForwardStart")
+      self:Invoke("MoveForwardStop")
+      if not ok then return false, reason end
+    end
+    self.following = nil
+  end
+  return true
 end
 
 function B:Position(unit)
@@ -145,7 +163,7 @@ end
 
 function B:Manual(axis, enabled)
   if not axes[axis] then return false, "Invalid movement axis" end
-  if enabled and (self.destination or self.following) then self:StopMovement() end
+  if enabled and (self.destination or self.following or self.pendingCast or self.resumeFollow) then self:StopMovement() end
   local ok, reason = self:SetAxis(axis, enabled)
   if not ok then return false, reason end
   self.manualUntil = GetTime() + 0.8
@@ -155,17 +173,19 @@ end
 function B:ManualAxes(mask)
   mask = tonumber(mask)
   if not mask or mask < 0 or mask > 63 or mask ~= math.floor(mask) then return false, "Invalid movement keys" end
+  local originalMask = mask
   local directions = { "forward", "backward", "left", "right", "strafeleft", "straferight" }
   local enabled = {}
   for i = 1, 6 do enabled[i], mask = math.mod(mask, 2) == 1, math.floor(mask / 2) end
   for i = 1, 5, 2 do
     if enabled[i] and enabled[i + 1] then return false, "Opposite movement keys cannot be held together" end
   end
-  if self.destination or self.following then self:StopMovement() end
+  if self.destination or self.following or (originalMask ~= 0 and (self.pendingCast or self.resumeFollow)) then self:StopMovement() end
   for i = 1, 6 do
     local ok, reason = self:SetAxis(directions[i], enabled[i])
     if not ok then self:StopMovement(); return false, reason end
   end
+  if originalMask == 0 and (self.pendingCast or self.resumeFollow) then return true end
   self.manualUntil = GetTime() + 0.8
   return true
 end

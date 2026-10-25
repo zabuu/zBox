@@ -1,0 +1,77 @@
+local B = zBox
+
+function B:SetMirrorMode(enabled)
+  if enabled and not self:GetBridgeInfo().mirror then return false, "Mirror mode needs zBoxBridge 0.1.4 on both clients" end
+  if self.connected and self.db.role == "control" then self:Command("STOP") end
+  self.db.mirrorMovement = enabled and true or false
+  self.mirrorPaused, self.lastMirrorAt = not enabled, nil
+  self:Notify(enabled and "Mirror movement enabled: heading, movement and jump" or "Follow mode selected")
+  return true
+end
+
+function B:ToggleMirrorPause()
+  if not self.db.mirrorMovement then return end
+  if self.mirrorPaused then self.mirrorPaused, self.lastMirrorAt = false, nil
+  else self:Command("STOP") end
+  if self.UI then self.UI.dirty = true end
+end
+
+function B:MirrorTick(now)
+  if not self.connected or self.db.role ~= "control" or not self.db.mirrorMovement or self.mirrorPaused then return end
+  if now - (self.lastMirrorAt or -10) < 0.12 then return end
+  local ok, result, mask, heading = pcall(zBoxNative, "inputs")
+  if not ok or result ~= 1 or type(mask) ~= "number" or type(heading) ~= "number" then
+    self:Command("STOP"); self:Notify("Mirror paused: update zBoxBridge on both clients"); return
+  end
+  local changed = mask ~= self.lastMirrorMask or not self.lastMirrorHeading or math.abs(heading-self.lastMirrorHeading) > 0.008
+  if not changed and now - (self.lastMirrorAt or -10) < 0.25 then return end
+  self.lastMirrorAt, self.lastMirrorMask, self.lastMirrorHeading = now, mask, heading
+  heading = math.mod(heading, math.pi*2)
+  if heading > math.pi*2 - 0.000001 then heading = 0 end
+  self:Command("MIRROR", { mask, string.format("%.6f", heading), (GetRealZoneText and GetRealZoneText()) or "" })
+end
+
+function B:AcceptMirror(mask, heading, zone)
+  mask, heading = self.Integer(mask, 0, 63), tonumber(heading)
+  if not mask or not heading or heading ~= heading or heading < 0 or heading >= math.pi*2 then return false, "Invalid mirrored inputs" end
+  if not self:GetBridgeInfo().mirror then return false, "Mirror mode needs zBoxBridge 0.1.4" end
+  if zone ~= ((GetRealZoneText and GetRealZoneText()) or "") then return false, "Mirror movement requires the same zone" end
+  -- Heading is authoritative. Turn keys affect the main's heading, so account 2
+  -- receives the measured result instead of integrating a second turn rate.
+  local forward, backward = math.mod(mask,2), math.mod(math.floor(mask/2),2)
+  local strafe = math.floor(mask/16)
+  if forward+backward > 1 or strafe == 3 then return false, "Opposite mirrored inputs" end
+  local travelMask = forward + backward*2 + strafe*16
+  if self.following or self.destination then self:StopMovement() end
+  self.mirrorInput = { mask = travelMask, heading = heading, at = GetTime() }
+  self.resumeFollow = nil
+  self:MirrorAgentTick(GetTime())
+  return true, "Mirroring movement"
+end
+
+function B:MirrorAgentTick(now)
+  local input = self.mirrorInput
+  if not input then return end
+  if now - input.at > 0.8 or UnitIsDeadOrGhost("player") then self:StopMovement(); return end
+  if self.pendingCast or (self.castingUntil and now < self.castingUntil) then return end
+  local ok, result = pcall(zBoxNative, "SetHeading", input.heading)
+  if not ok or result ~= 1 then
+    self:StopMovement(); self:Send("ERROR", { "Mirror heading failed; movement stopped" }, true); return
+  end
+  -- ManualAxes handles the normal lease and opposing-key checks. Preserve the
+  -- stream so it can renew input without invoking follow.
+  self:ManualAxes(input.mask)
+end
+
+function B:HookMirrorJump()
+  if self.mirrorJumpHook or type(Jump) ~= "function" then return end
+  local original = Jump
+  Jump = function(a,b,c)
+    original(a,b,c)
+    if B.connected and B.db.role == "control" and B.db.mirrorMovement and not B.mirrorPaused then
+      B:MirrorTick(GetTime())
+      B:Command("JUMP", { "mirror" })
+    end
+  end
+  self.mirrorJumpHook = true
+end

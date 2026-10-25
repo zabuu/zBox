@@ -168,9 +168,10 @@ function B:Message(kind, fields, id, now)
     local pending = self.pending[tonumber(fields[1])]
     if pending then
       self.pending[tonumber(fields[1])] = nil
+      if pending.command == "MIRROR" and fields[2] ~= "1" then self:Command("STOP") end
       local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL") and
         fields[2] == "1" and self.lastCastFeedbackAt and self.lastCastFeedbackAt >= pending.at and now - self.lastCastFeedbackAt < 2
-      local quiet = fields[2] == "1" and (pending.command == "AXES" or pending.command == "AXIS")
+      local quiet = fields[2] == "1" and (pending.command == "AXES" or pending.command == "AXIS" or pending.command == "MIRROR")
       if not castConfirmed and not quiet then self.notice = pending.command .. ": " .. tostring(fields[3]) end
       if fields[2] ~= "1" then self:Print(self.notice) end
     end
@@ -202,10 +203,13 @@ function B:Tick(now, elapsed)
   end
   if self.connected and self.db.role == "agent" then
     self:MovementTick(now)
+    self:CastingTick(now)
+    self:MirrorAgentTick(now)
     if now - self.lastStatus >= 0.5 then
       self:SendStatus()
       self.lastStatus = now
     end
+    if self.activeView and self.activeView.section == "quests" and now - (self.lastViewAt or -10) >= 2.5 then self.viewDirty = true end
     if self.activeView and self.viewDirty and now - (self.lastViewAt or -10) >= 0.8 then
       self:SendView()
       self.viewDirty, self.lastViewAt = false, now
@@ -216,6 +220,7 @@ function B:Tick(now, elapsed)
     end
   end
   if self.ControlTick then self:ControlTick(now) end
+  if self.MirrorTick then self:MirrorTick(now) end
   for id, incoming in pairs(self.incoming) do
     if now - incoming.at > 30 then self.incoming[id] = nil end
   end

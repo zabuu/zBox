@@ -11,7 +11,7 @@ import random
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["Core.lua", "Protocol.lua", "Movement.lua", "Controls.lua", "Agent.lua", "UI.lua"]
+FILES = ["Core.lua", "Protocol.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Mirror.lua", "Quests.lua", "NPC.lua", "Agent.lua", "UI.lua"]
 BOOT = r'''
 clock=10; realm="Private Test"; grouped=true; alive=true; combat=false
 getglobal=function(n) return _G[n] end
@@ -42,7 +42,9 @@ function Frame:SetWidth(n) self.width=n end
 function Frame:GetWidth() return self.width end
 function Frame:SetHeight(n) self.height=n end
 function Frame:GetHeight() return self.height end
-function Frame:GetEffectiveScale() return self.scale or 1 end
+function Frame:GetEffectiveScale() return (self.scale or 1) * (self.parent and self.parent:GetEffectiveScale() or 1) end
+function Frame:GetTop() return self.mockTop end
+function Frame:GetBottom() return self.mockBottom end
 function Frame:SetScale(value) self.scale=value end
 function Frame:GetFrameLevel() return self.level end
 function Frame:SetFrameLevel(n) self.level=n end
@@ -123,7 +125,7 @@ UseAction=function(a,b,c) log("UseAction",a,b,c) end
 CastSpell=function(a,b) log("CastSpell",a,b) end
 TargetUnit=function(unit) log("TargetUnit",unit) end
 ClearTarget=function() log("ClearTarget") end
-FollowUnit=function(unit) log("FollowUnit",unit) end
+FollowUnit=function(unit) if unit~="player" then nativeFollowing=true end;log("FollowUnit",unit) end
 AssistUnit=function(unit) log("AssistUnit",unit) end
 AttackTarget=function() log("AttackTarget") end
 Jump=function() log("Jump") end
@@ -153,8 +155,15 @@ zAPI=function(command,unit,y,z,ex,ey,ez)
  if command=="setTarget" then zApiTargetCalls=zApiTargetCalls+1;TargetUnit(unit);return 1 end
 end
 zBoxNative=function(name,a,b,c)
- if name=="capabilities" then return 1,"zBoxBridge 0.1.3",2 end
- if name=="status" then return 1,"Fixture bridge 0.1.3" end
+ if name=="capabilities" then return 1,"zBoxBridge 0.1.4",3 end
+ if name=="status" then return 1,"Fixture bridge 0.1.4" end
+ if name=="StopFollow" then nativeFollowing=false;log("StopFollow");return 1,"Native follow cancelled" end
+ if name=="inputs" then
+  local mask=0
+  for i,axis in ipairs({"MoveForward","MoveBackward","TurnLeft","TurnRight","StrafeLeft","StrafeRight"}) do if axes[axis] then mask=mask+2^(i-1) end end
+  return 1,mask,facing
+ end
+ if name=="SetHeading" then facing=a;log("SetHeading",a);return 1,"Heading matched" end
  _G[name](a,b,c);return 1,"Requested"
 end
 function physics(dt)
@@ -332,7 +341,7 @@ assert call_count(buff_pair.alt, "UseAction") == 2
 assert call_count(buff_pair.alt, "MoveForwardStart") == 0
 assert "restart both clients" in buff_pair.main.globals().zBox.notice
 buff_pair.command('zBox:Command("FOLLOW")')
-assert call_count(buff_pair.alt, "FollowUnit") == 1
+assert buff_pair.alt.eval('calls[#calls][1]=="FollowUnit" and calls[#calls][2]=="party1"')
 buff_pair.main.execute('zBox:Slash("diag")')
 buff_pair.advance(2)
 assert "Bridge update required" in buff_pair.main.globals().zBox.notice
@@ -613,7 +622,7 @@ for command in ['ACTION','SPELL']:
     assert names.index('MoveForwardStop')<names.index('UseAction' if command=='ACTION' else 'CastSpell')
     assert not p.alt.globals().zBox.following
     assert call_count(p.main,'MoveForwardStop')==0
-print("PASS: action and spell casts stop account 2's follow first, without stopping account 1 or resuming follow")
+print("PASS: action and spell casts stop account 2's follow first, without stopping account 1 or resuming follow during the cast delay")
 
 MACROS=r"""
 macros={};cursorMacro=nil;altKey=false;ctrlKey=false;shiftKey=false;bindings={}
@@ -707,4 +716,3 @@ p.alt.execute('assert(axes.MoveForward)')
 p.main.execute('ctrlKey=false');p.advance(.4)
 p.alt.execute('assert(not axes.MoveForward)')
 print("PASS: compact dock, optional browser, independent bar paging/cooldowns and keybinding capture/save/cancel/clear")
-print("All zBox offline behavioral checks passed.")

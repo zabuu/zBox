@@ -58,7 +58,7 @@ function B:SendStatus()
 end
 
 function B:SetView(section, page)
-  local limits = { actions = 10, spells = 40, bags = 5, gear = 1, talents = 3 }
+  local limits = { actions = 10, spells = 40, bags = 5, gear = 1, talents = 3, quests = 8, npc = 40 }
   if not limits[section] then return end
   page = integer(page, 1, limits[section])
   if not page then return end
@@ -140,6 +140,10 @@ function B:SendView(override)
       table.insert(rows, self:Encode({ index, talentName or "", icon or "", tier or 1, column or 1,
         rank or 0, maxRank or 0, flag(meets) }))
     end
+  elseif section == "quests" then
+    rows, title, maximum = self:QuestView(page)
+  elseif section == "npc" then
+    rows, title, maximum = self:NPCView(page)
   end
   self.snapshotID = (self.snapshotID or 0) + 1
   self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n") }, false)
@@ -163,9 +167,9 @@ function B:AcceptState(fields)
     if fields[7] ~= "" then
       local encoded = self.Split(fields[7], "\n")
       if table.getn(encoded) > 48 then return end
-      local minimum = { actions = 10, spells = 6, bags = 8, gear = 4, talents = 8 }
+      local minimum = { actions = 10, spells = 6, bags = 8, gear = 4, talents = 8, quests = 7, npc = 9 }
       local numeric = { actions = { 1, 5, 6, 7, 8, 9, 10 }, spells = { 1, 6 },
-        bags = { 1, 2, 4, 5, 6 }, gear = { 1 }, talents = { 1, 4, 5, 6, 7, 8 } }
+        bags = { 1, 2, 4, 5, 6 }, gear = { 1 }, talents = { 1, 4, 5, 6, 7, 8 }, quests = { 1, 4 }, npc = { 1, 7, 8, 9 } }
       if not minimum[fields[2]] then return end
       for i = 1, table.getn(encoded) do
         rows[i] = self:Decode(encoded[i])
@@ -178,6 +182,11 @@ function B:AcceptState(fields)
     if forView then self.lastSnapshotID, self.cache.view = tonumber(fields[4]), snapshot end
     if forBar then self.lastBarSnapshotID, self.cache.bar = tonumber(fields[4]), snapshot end
     self.selection = nil
+  elseif fields[1] == "questkeys" and table.getn(fields) == 2 then
+    self.cache.questKeys = {}
+    for _, encoded in ipairs(self.Split(fields[2], "\n")) do
+      self.cache.questKeys[self:Decode(encoded)[1]] = true
+    end
   elseif fields[1] == "cooldowns" then
     if table.getn(fields) ~= 3 then return end
     if tonumber(fields[2]) ~= self.actionPage then return end
@@ -318,11 +327,11 @@ end
 function B:Execute(fields)
   local command = fields[1]
   if command == "STOP" then
-    self:StopMovement()
+    local stopped, reason = self:StopMovement(nil, true)
     self:Invoke("SpellStopCasting")
     if SpellStopTargeting then self:Invoke("SpellStopTargeting") end
     if AttackTarget and IsCurrentSpell and IsCurrentSpell("Attack") then self:Invoke("AttackTarget") end
-    return true, "Stopped movement and casting"
+    return stopped, stopped and "Stopped movement and casting" or reason
   elseif command == "FOLLOW" then
     local unit = self:GroupUnit(self.db.peer)
     if not unit then return false, "Main character is unavailable" end
@@ -330,6 +339,10 @@ function B:Execute(fields)
     local ok, detail = self:Invoke("FollowUnit", unit)
     self.following = ok
     return ok, detail or "Follow requested"
+  elseif command == "TALK" then
+    return self:TalkToNPC(fields[2])
+  elseif command == "NPC" then
+    return self:NPCAction(fields[2], fields[3], fields[4])
   elseif command == "ASSIST" then
     local unit = self:GroupUnit(self.db.peer)
     if not unit then return false, "Main character is unavailable" end
@@ -341,26 +354,21 @@ function B:Execute(fields)
     return self:Manual(fields[2], fields[3] == "1")
   elseif command == "AXES" then
     return self:ManualAxes(fields[2])
+  elseif command == "MIRROR" then
+    return self:AcceptMirror(fields[2], fields[3], fields[4])
   elseif command == "JUMP" then
+    if fields[2] == "mirror" and (self.pendingCast or (self.castingUntil and GetTime() < self.castingUntil)) then return true, "Jump skipped while casting" end
     return self:Invoke("Jump")
   elseif command == "ACTION" then
     local slot = integer(fields[2], 1, 120)
     if not slot or not HasAction(slot) then return false, "This action slot is empty" end
     if fields[3] ~= self:ActionStamp(slot) then return false, "Action bar changed; refresh before clicking again" end
-    local ok, reason = self:ChooseTarget(fields[4])
-    if not ok then return false, reason end
-    self:StopMovement()
-    self.castRequestAt, self.lastCastSignal = GetTime(), nil
-    return self:Invoke("UseAction", slot, 0, fields[4] == "SELF" and 1 or nil)
+    return self:RequestCast(command, slot, fields[3], fields[4])
   elseif command == "SPELL" then
     local index = integer(fields[2], 1, 960)
     if not index or fields[3] ~= self:SpellStamp(index) then return false, "Spellbook changed; refresh first" end
     if IsPassiveSpell and IsPassiveSpell(index, BOOKTYPE_SPELL or "spell") then return false, "This spell is passive" end
-    local ok, reason = self:ChooseTarget(fields[4])
-    if not ok then return false, reason end
-    self:StopMovement()
-    self.castRequestAt, self.lastCastSignal = GetTime(), nil
-    return self:Invoke("CastSpell", index, BOOKTYPE_SPELL or "spell")
+    return self:RequestCast(command, index, fields[3], fields[4])
   elseif command == "USEITEM" then
     if self:CursorBusy() then return false, "Clear account 2's cursor first" end
     local bag, slot, reason = self:ValidateBag(fields[2], fields[3], fields[4])

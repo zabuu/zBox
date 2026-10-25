@@ -144,3 +144,28 @@ rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua
 bx,by,bw,bh = rect(lua.globals().zBox.UI.browser)
 scaled_crop(bx,by,bw,bh+fh+5).save(out / "browser-preview.png")
 print("Saved fixture layout previews (placeholder icons):", out)
+
+# The larger quest/NPC rows and downward popouts use the production UI too.
+features = ast.parse((HERE / "test_features.py").read_text()).body
+for node in features:
+    if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id in {"QUESTS", "NPC"} for t in node.targets):
+        exec(compile(ast.Module(body=[node], type_ignores=[]), "fixture", "exec"), env)
+lua.execute('zBox.db.peer="Alt"')
+pair.main.execute(env["QUESTS"])
+pair.alt.execute(env["QUESTS"])
+pair.main.execute('quests[1][3]="Wolves slain: 5/8";quests[2][1]="Main questline";zBox:Request("quests",1)')
+pair.advance(4)
+lua.execute('''
+zBox.UI.frame:ClearAllPoints();zBox.UI.frame:SetPoint("TOP",UIParent,"TOP",0,-10)
+zBox.UI.frame.mockTop=900;zBox.UI.frame.mockBottom=790
+zBox.UI.browser:Show();zBox.UI:Refresh();zBox.UI.toast:Hide()
+''')
+def full_preview(name):
+    rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+    canvas.resize((1280,800),Image.Resampling.LANCZOS).save(out / name)
+full_preview("quests-below-preview.png")
+pair.alt.execute(env["NPC"])
+pair.alt.execute('zBox:NPCEvent("MERCHANT_SHOW")')
+lua.execute('zBox:Request("npc",1)');pair.advance(4)
+lua.execute('zBox.db.mirrorMovement=true;zBox.mirrorPaused=false;zBox.UI:Refresh();zBox.UI.toast:Hide()')
+full_preview("npc-mirror-preview.png")
