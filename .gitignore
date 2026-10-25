@@ -1,0 +1,11 @@
+native/build/
+tests/build/
+tests/__pycache__/
+backups/
+dist/
+*.obj
+*.pdb
+*.exp
+*.lib
+.DS_Store
+Thumbs.db

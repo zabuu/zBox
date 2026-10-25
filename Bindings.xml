@@ -1,0 +1,14 @@
+<Bindings>
+  <Binding name="ZBOX_TOGGLE" header="ZBOX">zBox:Slash("")</Binding>
+  <Binding name="ZBOX_STOP">zBox:Slash("stop")</Binding>
+  <Binding name="ZBOX_MOVE">zBox:Slash("move")</Binding>
+  <Binding name="ZBOX_FORWARD" runOnUp="true">zBox:HoldDirection("forward", keystate == "down")</Binding>
+  <Binding name="ZBOX_BACKWARD" runOnUp="true">zBox:HoldDirection("backward", keystate == "down")</Binding>
+  <Binding name="ZBOX_LEFT" runOnUp="true">zBox:HoldDirection("left", keystate == "down")</Binding>
+  <Binding name="ZBOX_RIGHT" runOnUp="true">zBox:HoldDirection("right", keystate == "down")</Binding>
+  <Binding name="ZBOX_STRAFELEFT" runOnUp="true">zBox:HoldDirection("strafeleft", keystate == "down")</Binding>
+  <Binding name="ZBOX_STRAFERIGHT" runOnUp="true">zBox:HoldDirection("straferight", keystate == "down")</Binding>
+  <Binding name="ZBOX_FOLLOW">zBox:Command("FOLLOW")</Binding>
+  <Binding name="ZBOX_ASSIST">zBox:Command("ASSIST")</Binding>
+  <Binding name="ZBOX_JUMP">zBox:Command("JUMP")</Binding>
+</Bindings>

@@ -1,0 +1,652 @@
+local B = zBox
+local U = { cells = {}, lastTick = 0 }
+B.UI = U
+local backdrop = { bgFile = "Interface\\Tooltips\\UI-Tooltip-Background",
+  edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12,
+  insets = { left = 3, right = 3, top = 3, bottom = 3 } }
+local equipment = { [0] = "Ammo", "Head", "Neck", "Shoulders", "Shirt", "Chest", "Waist", "Legs",
+  "Feet", "Wrists", "Hands", "Finger 1", "Finger 2", "Trinket 1", "Trinket 2", "Back",
+  "Main hand", "Off hand", "Ranged", "Tabard" }
+
+local function label(parent, text, size, x, y, width)
+  local f = parent:CreateFontString(nil, "OVERLAY")
+  f:SetFont("Fonts\\FRIZQT__.TTF", size or 11)
+  f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  if width then f:SetWidth(width) end
+  f:SetJustifyH("LEFT")
+  f:SetText(text)
+  return f
+end
+
+local function button(parent, caption, x, y, width, handler)
+  local f = CreateFrame("Button", nil, parent)
+  f:SetWidth(width or 85); f:SetHeight(25)
+  f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  f:SetBackdrop(backdrop); f:SetBackdropColor(0.09, 0.13, 0.18, 1)
+  f:SetBackdropBorderColor(0.25, 0.45, 0.49, 1)
+  local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+  text:SetPoint("CENTER", f, "CENTER", 0, 0); text:SetText(caption)
+  f.caption = text
+  f:SetScript("OnClick", handler)
+  f:SetScript("OnEnter", function() this:SetBackdropColor(0.13, 0.24, 0.29, 1) end)
+  f:SetScript("OnLeave", function() this:SetBackdropColor(0.09, 0.13, 0.18, 1) end)
+  return f
+end
+
+local function edit(parent, name, x, y, width)
+  local f = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
+  f:SetWidth(width); f:SetHeight(24); f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
+  f:SetAutoFocus(false); f:SetMaxLetters(48)
+  f:SetScript("OnEscapePressed", function() this:ClearFocus() end)
+  f:SetScript("OnEnterPressed", function() this:ClearFocus() end)
+  return f
+end
+
+local function compactButton(parent, caption, x, y, width, handler)
+  local f = button(parent, caption, x, y, width, handler)
+  f:SetHeight(20)
+  return f
+end
+
+function U:SetScale(value)
+  value = tonumber(value)
+  if not value or value ~= value or value < 0.55 or value > 1.25 then
+    return false, "Use /zbox scale 0.55 to 1.25; /zbox scale reset restores 85%."
+  end
+  B.db.uiScale = value
+  self.frame:SetScale(value)
+  if self.pad then self.pad:SetScale(value) end
+  if self.scaleLabel then self.scaleLabel:SetText(string.format("%.0f%%", value * 100)) end
+  return true
+end
+
+function U:Run(command, fields)
+  local ok, reason = B:Command(command, fields)
+  if not ok then B:Notify(reason) end
+end
+
+function U:Create()
+  if self.frame then return end
+  local f = CreateFrame("Frame", "zBoxPanel", UIParent)
+  self.frame = f
+  f:SetWidth(496); f:SetHeight(110)
+  local pos = B.db.position
+  if pos then f:SetPoint(pos[1], UIParent, pos[2], pos[3], pos[4])
+  else f:SetPoint("BOTTOM", UIParent, "BOTTOM", 0, 140) end
+  f:SetFrameStrata("DIALOG"); f:SetMovable(true); f:EnableMouse(true); f:SetClampedToScreen(true)
+  f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 0.95)
+  f:SetBackdropBorderColor(0.16, 0.25, 0.28, 1)
+  f:RegisterForDrag("LeftButton")
+  f:SetScript("OnDragStart", function() this:StartMoving() end)
+  f:SetScript("OnDragStop", function()
+    this:StopMovingOrSizing()
+    local point, _, relative, x, y = this:GetPoint()
+    if point and relative and x and y then B.db.position = { point, relative, x, y } end
+  end)
+  f:SetScript("OnHide", function()
+    U:CancelMove(); U:ReleaseAxis()
+    U.browser:Hide(); U.pad:Hide(); U.setup:Hide(); U.keys:Hide()
+  end)
+  table.insert(UISpecialFrames, "zBoxPanel")
+  label(f, "zBox", 11, 12, -8, 36):SetTextColor(0.35, 0.9, 0.8)
+  self.connection = label(f, "Not paired", 10, 52, -9, 250)
+  compactButton(f, "More", 310, -4, 52, function() U:ToggleBrowser() end)
+  compactButton(f, "Keys", 366, -4, 44, function() U:ShowKeys() end)
+  compactButton(f, "Setup", 414, -4, 48, function() U:ShowSetup() end)
+  compactButton(f, "x", 466, -4, 18, function() f:Hide() end)
+  self.health = label(f, "Account 2 is not connected", 9, 12, -28, 252)
+  self.power = label(f, "", 9, 416, -28, 68)
+  self.power:SetJustifyH("RIGHT")
+  self.target = label(f, "Target: --", 9, 272, -28, 140)
+  self.target:SetHeight(12)
+  self.inputMode = label(f, "", 9, 416, -28, 68)
+  self.inputMode:SetJustifyH("RIGHT"); self.inputMode:SetTextColor(0.45, 0.6, 0.64)
+  self.strip = CreateFrame("Frame", nil, f)
+  self.strip:SetWidth(472); self.strip:SetHeight(34)
+  self.strip:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -45)
+  self.dockCells = {}
+  for i = 1, 12 do
+    local cell = self:CreateCell(i, self.strip, true)
+    cell:SetPoint("TOPLEFT", self.strip, "TOPLEFT", (i - 1) * 40, 0)
+    self.dockCells[i] = cell
+  end
+  compactButton(f, "<", 12, -84, 22, function() U:BarPage(-1) end)
+  self.barPage = label(f, "1/10", 9, 38, -89, 34)
+  compactButton(f, ">", 76, -84, 22, function() U:BarPage(1) end)
+  self.targetMode = compactButton(f, "Main's target", 106, -84, 112, function() U:CycleTarget() end)
+  self.targetMode:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP")
+    GameTooltip:SetText("Cast target")
+    GameTooltip:AddLine("Click to cycle: main's target, main character, account 2, or account 2's current target.", 0.7, 0.85, 0.85, true)
+    GameTooltip:AddLine("Right-click any skill to target account 2 directly.", 0.7, 0.85, 0.85, true)
+    GameTooltip:Show()
+  end)
+  self.targetMode:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  compactButton(f, "Follow", 224, -84, 76, function() U:Run("FOLLOW") end)
+  compactButton(f, "Move", 306, -84, 76, function() U:ArmMove() end)
+  local stop = compactButton(f, "STOP", 388, -84, 96, function() U:Run("STOP") end)
+  stop.caption:SetTextColor(1, 0.4, 0.36)
+  self.toast = CreateFrame("Frame", nil, f)
+  self.toast:SetWidth(496); self.toast:SetHeight(22)
+  self.toast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -3)
+  self.toast:SetBackdrop(backdrop); self.toast:SetBackdropColor(0.025, 0.035, 0.045, 0.95)
+  self.notice = label(self.toast, "", 9, 8, -5, 480)
+  self.notice:SetHeight(14); self.notice:SetTextColor(0.6, 0.78, 0.8)
+  self.toast:Hide()
+  self:CreateBrowser()
+  self:CreateSetup()
+  self:CreateDirectionPad()
+  self:CreateMoveOverlay()
+  self:CreateKeys()
+  local scale = tonumber(B.db.uiScale) or 0.85
+  self:SetScale(math.max(0.55, math.min(1.25, scale)))
+  self:Refresh()
+  if B.db.enabled then f:Hide() else self:ShowSetup() end
+end
+
+function U:CreateBrowser()
+  local f = CreateFrame("Frame", "zBoxBrowser", self.frame)
+  self.browser = f
+  f:SetWidth(496); f:SetHeight(405); f:SetPoint("BOTTOMLEFT", self.frame, "TOPLEFT", 0, 5)
+  f:SetClampedToScreen(true)
+  f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 0.97); f:EnableMouse(true)
+  self.tabs, self.targetButtons = {}, {}
+  local tabs = { { "Actions", "actions" }, { "Spells", "spells" }, { "Bags", "bags" },
+    { "Gear", "gear" }, { "Talents", "talents" } }
+  for i = 1, table.getn(tabs) do
+    local entry = tabs[i]
+    local b = button(f, entry[1], 12 + (i - 1) * 96, -10, 88, function()
+      B:Request(this.section, 1); U:Refresh()
+    end)
+    b.section = entry[2]; self.tabs[i] = b
+  end
+  button(f, "<", 12, -43, 22, function() U:Page(-1) end)
+  self.pageLabel = label(f, "1 / 10", 9, 40, -50, 40)
+  button(f, ">", 84, -43, 22, function() U:Page(1) end)
+  self.viewTitle = label(f, "", 10, 116, -50, 196)
+  button(f, "Move pad", 318, -43, 80, function()
+    if U.pad:IsShown() then U.pad:Hide() else U.pad:Show() end
+  end)
+  button(f, "Refresh", 404, -43, 80, function() B:Request(B.view, B.page) end)
+  self.help = label(f, "", 9, 12, -76, 472)
+  self.content = CreateFrame("Frame", nil, f)
+  self.content:SetWidth(472); self.content:SetHeight(270)
+  self.content:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -99)
+  for i = 1, 48 do self.cells[i] = self:CreateCell(i, self.content) end
+  self.empty = label(self.content, "", 11, 4, -10, 464)
+  self.selectionText = label(f, "", 9, 12, -379, 472)
+  self.selectionText:SetHeight(18)
+  f:Hide()
+end
+
+function U:ToggleBrowser()
+  self.keys:Hide(); self.setup:Hide()
+  if self.browser:IsShown() then self.browser:Hide()
+  else self.browser:Show(); B:Request(B.view, B.page); self:Refresh() end
+end
+
+function U:BarPage(delta)
+  B.actionPage = math.max(1, math.min(10, B.actionPage + delta))
+  if B.view == "actions" then B:Request("actions", B.actionPage)
+  elseif B.connected then B:Send("BAR", { B.actionPage }, true) end
+  self:Refresh()
+end
+
+function U:CycleTarget()
+  local modes = { "TARGET", "MAIN", "SELF", "KEEP" }
+  for i = 1, 4 do if B.targetMode == modes[i] then B.targetMode = modes[math.mod(i, 4) + 1]; break end end
+  self:Refresh()
+end
+
+function U:CreateCell(index, parent, dock)
+  local cell = CreateFrame("Button", (dock and "zBoxDock" or "zBoxCell") .. index, parent)
+  cell.isDock = dock
+  cell:SetWidth(dock and 32 or 115); cell:SetHeight(dock and 32 or 43)
+  cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+  cell:RegisterForDrag("LeftButton")
+  cell:SetScript("OnDragStart", function() U:Drag(this) end)
+  cell.icon = cell:CreateTexture(nil, "ARTWORK")
+  cell.icon:SetWidth(32); cell.icon:SetHeight(32); cell.icon:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
+  cell.icon:SetTexCoord(0.06, 0.94, 0.06, 0.94)
+  cell.border = cell:CreateTexture(nil, "BACKGROUND")
+  cell.border:SetTexture(0.15, 0.21, 0.26, 0.9)
+  cell.border:SetPoint("TOPLEFT", cell.icon, "TOPLEFT", -2, 2)
+  cell.border:SetPoint("BOTTOMRIGHT", cell.icon, "BOTTOMRIGHT", 2, -2)
+  cell.name = label(cell, "", 10, 38, -2, 75)
+  cell.name:SetHeight(29)
+  cell.sub = label(cell, "", 9, 38, -30, 75)
+  cell.sub:SetTextColor(0.55, 0.7, 0.78)
+  cell.count = label(cell, "", 10, 1, -21, 30)
+  cell.count:SetJustifyH("RIGHT")
+  cell.cooldown = label(cell, "", 14, 0, -8, 32)
+  cell.cooldown:SetJustifyH("CENTER")
+  cell.cooldown:SetTextColor(1, 0.85, 0.3)
+  cell:SetScript("OnEnter", function() U:Tooltip(this) end)
+  cell:SetScript("OnLeave", function() U.hovered = nil; GameTooltip:Hide() end)
+  cell:SetScript("OnClick", function()
+    if not this.ignoreClickUntil or GetTime() > this.ignoreClickUntil then U:Click(this, arg1) end
+  end)
+  if dock then cell.name:Hide(); cell.sub:Hide() end
+  return cell
+end
+
+function U:Drag(cell)
+  cell.ignoreClickUntil = GetTime() + 0.4
+  local ok, reason = B:PickupRemote(cell.section, cell.row)
+  if reason then B:Notify(reason) end
+end
+
+function U:Page(delta)
+  local view = B.cache.view
+  local limits = { actions = 10, spells = 40, bags = 5, gear = 1, talents = 3 }
+  local maxPage = view and view.section == B.view and view.maximum or limits[B.view]
+  local page = math.max(1, math.min(maxPage, B.page + delta))
+  B:Request(B.view, page)
+  self:Refresh()
+end
+
+function U:Tooltip(cell)
+  local row = cell.row
+  if not row then return end
+  GameTooltip:SetOwner(cell, "ANCHOR_RIGHT")
+  if cell.section == "bags" and row[8] ~= "" then GameTooltip:SetHyperlink(row[8])
+  elseif cell.section == "gear" and row[4] ~= "" then GameTooltip:SetHyperlink(row[4])
+  else
+    GameTooltip:SetText(cell.tooltip or cell.name:GetText() or "")
+    if cell.section == "talents" then
+      GameTooltip:AddLine("Rank " .. row[6] .. " / " .. row[7], 1, 1, 1)
+      GameTooltip:AddLine("Click to spend ONE talent point on account 2.", 0.5, 0.9, 0.8, true)
+      GameTooltip:AddLine("Normal level, tier and prerequisite rules apply.", 0.8, 0.8, 0.8, true)
+    elseif cell.section == "actions" or cell.section == "spells" then
+      GameTooltip:AddLine("Click: cast. Right-click: self. Drag: add to your own bars.", 0.5, 0.9, 0.8, true)
+    end
+  end
+  GameTooltip:Show()
+  if B.connected and (cell.section == "actions" or cell.section == "spells" or cell.section == "talents") then
+    self.hovered = { cell = cell, section = cell.section, page = tostring(cell.isDock and B.actionPage or B.page), index = row[1] }
+    if not self:RemoteTooltip() then B:Send("TIP", { cell.section, cell.isDock and B.actionPage or B.page, row[1] }, true) end
+  end
+end
+
+function U:RemoteTooltip()
+  local hover, tooltip = self.hovered, B.cache.tooltip
+  if not hover or not tooltip or tooltip.text == "" or hover.section ~= tooltip.section or
+     hover.page ~= tooltip.page or hover.index ~= tooltip.index then return false end
+  if not hover.cell:IsShown() then return false end
+  if not hover.cell.isDock and (B.view ~= hover.section or tostring(B.page) ~= hover.page) then return false end
+  GameTooltip:SetOwner(hover.cell, "ANCHOR_RIGHT")
+  local lines = B.Split(tooltip.text, "\n")
+  GameTooltip:SetText(lines[1])
+  for i = 2, table.getn(lines) do GameTooltip:AddLine(lines[i], 0.9, 0.9, 0.9, true) end
+  if hover.section == "talents" then GameTooltip:AddLine("Click to spend ONE point on account 2.", 0.4, 1, 0.8, true) end
+  GameTooltip:Show()
+  return true
+end
+
+function U:Click(cell, mouse)
+  local row = cell.row
+  if not row or not B.connected then return end
+  if cell.section == "actions" then
+    if row[2] == "" then return end
+    self:Run("ACTION", { row[1], row[4], B:TargetDescriptor(mouse == "RightButton") })
+  elseif cell.section == "spells" then
+    if row[6] == "1" then B:Notify("That spell is passive"); return end
+    self:Run("SPELL", { row[1], row[5], B:TargetDescriptor(mouse == "RightButton") })
+  elseif cell.section == "bags" then
+    if row[8] == "" then return end
+    if mouse == "RightButton" then
+      self:Run("USEITEM", { row[1], row[2], row[8] })
+    else
+      B.bagSelection = { bag = row[1], slot = row[2], key = row[8], link = row[7] }
+      B.notice = "Selected item. Open Equipment and click its destination slot."
+      self:Refresh()
+    end
+  elseif cell.section == "gear" then
+    if IsShiftKeyDown() and mouse == "LeftButton" then
+      self:Run("UNEQUIP", { row[1], row[4] })
+    elseif B.bagSelection and mouse == "LeftButton" then
+      local selected = B.bagSelection
+      self:Run("EQUIP", { selected.bag, selected.slot, selected.key, row[1], row[4] })
+      B.bagSelection = nil
+    end
+  elseif cell.section == "talents" and mouse == "LeftButton" then
+    self:Run("TALENT", { B.page, row[1], row[6] })
+  end
+end
+
+function U:Refresh()
+  if not self.frame then return end
+  local view = B.cache.view
+  self.connection:SetText(B.connected and ((B.db.peer or "") .. "  /  Connected") or
+    (B.db.enabled and ("Waiting for " .. (B.db.peer or "peer") .. " in your group") or "Not paired"))
+  self.connection:SetTextColor(B.connected and 0.3 or 1, B.connected and 0.95 or 0.7, 0.7)
+  local status = B.cache.status
+  if status then
+    self.health:SetText("HP " .. status[5] .. "/" .. status[6] .. "    Power " .. status[7] .. "/" .. status[8])
+    local movement = status[13] == "Moving to point" and "Moving" or (status[13] == "Following" and "Follow" or status[13])
+    self.power:SetText(movement == "Idle" and status[10] == "1" and "Combat" or movement)
+    self.target:SetText(status[9])
+    if status[14] == "Native inputs 0.1.3" then self.power:Show(); self.inputMode:Hide()
+    else self.power:Hide(); self.inputMode:SetText("Input update"); self.inputMode:Show() end
+  else
+    self.health:SetText(B.db.role == "agent" and "Agent mode: controlled by " .. (B.db.peer or "") or "Account 2 is not connected")
+    self.power:SetText(""); self.target:SetText("Target: --"); self.inputMode:SetText("")
+  end
+  local bodyHeight = 48
+  if view and view.section == B.view and view.page == B.page then
+    local count = table.getn(view.rows)
+    local columns = B.view == "bags" and 8 or 4
+    local step = (B.view == "actions" or B.view == "bags") and 48 or (B.view == "gear" and 49 or 43)
+    bodyHeight = math.max(48, math.ceil(count / columns) * step)
+    if B.view == "talents" then
+      bodyHeight = 48
+      for i = 1, count do bodyHeight = math.max(bodyHeight, tonumber(view.rows[i][4]) * 33) end
+    end
+  end
+  self.content:SetHeight(bodyHeight)
+  self.browser:SetHeight(99 + bodyHeight + 32)
+  self.selectionText:ClearAllPoints()
+  self.selectionText:SetPoint("TOPLEFT", self.browser, "TOPLEFT", 12, -99 - bodyHeight - 9)
+  self.barPage:SetText(tostring(B.actionPage) .. "/10")
+  local modes = { TARGET = "Main's target", MAIN = "Main character", SELF = "Account 2", KEEP = "Alt's target" }
+  self.targetMode.caption:SetText(modes[B.targetMode])
+  local bar = B.cache.bar
+  for i = 1, 12 do
+    local cell = self.dockCells[i]
+    if bar and bar.page == B.actionPage and bar.rows[i] then self:RenderCell(cell, bar.rows[i], i, "actions")
+    else
+      cell.row = nil; cell.icon:SetTexture("Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+      cell.count:SetText(""); cell.cooldown:SetText("")
+    end
+  end
+  for i = 1, table.getn(self.targetButtons) do
+    local b = self.targetButtons[i]
+    b.caption:SetTextColor(b.mode == B.targetMode and 0.3 or 0.9, 0.95, b.mode == B.targetMode and 0.8 or 0.9)
+  end
+  for i = 1, table.getn(self.tabs) do
+    local b = self.tabs[i]
+    b.caption:SetTextColor(b.section == B.view and 0.3 or 0.9, 0.95, b.section == B.view and 0.8 or 0.9)
+  end
+  for i = 1, table.getn(self.cells) do self.cells[i]:Hide(); self.cells[i].row = nil end
+  self.empty:Hide()
+  if not view or view.section ~= B.view or view.page ~= B.page then
+    self.viewTitle:SetText("Account 2 - " .. B.view)
+    self.pageLabel:SetText(tostring(B.page))
+    self.empty:SetText(B.connected and "Loading from account 2..." or "Pair both characters and put them in the same party.")
+    self.empty:Show()
+  else
+    self.viewTitle:SetText(view.title)
+    self.pageLabel:SetText(view.page .. " / " .. view.maximum)
+    for i = 1, math.min(48, table.getn(view.rows)) do self:RenderCell(self.cells[i], view.rows[i], i, view.section) end
+    if table.getn(view.rows) == 0 then self.empty:SetText("This page is empty."); self.empty:Show() end
+  end
+  local help = { actions = "Click to cast. Right-click for self. Drag a skill onto your own action bars.",
+    spells = "Click to cast. Drag a spell onto your bars. Passive spells cannot be used.",
+    bags = "Left click selects an item for equipping. Right click uses it on account 2.",
+    gear = "Select an item in Bags, then click its slot. Shift-click gear to unequip.",
+    talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites." }
+  self.help:SetText(help[B.view])
+  self.selectionText:SetText(B.bagSelection and ("Selected: " .. B.bagSelection.link) or "")
+  local notice = B.notice or ""
+  if notice ~= self.lastNotice then
+    self.lastNotice, self.noticeUntil = notice, GetTime() + 3
+    self.notice:SetText(notice)
+    if notice ~= "" then self.toast:Show() else self.toast:Hide() end
+  end
+  self.dirty = false
+end
+
+function U:RenderCell(cell, row, index, section)
+  cell.row, cell.section = row, section
+  local col, line, xstep, ystep = math.mod(index - 1, 4), math.floor((index - 1) / 4), 118, 43
+  local icon, name, sub = "", "", ""
+  if section == "actions" then
+    icon, name, sub = row[2], row[3], "Slot " .. row[1]
+    cell.count:SetText(tonumber(row[5]) > 1 and row[5] or "")
+    ystep = 48
+  elseif section == "spells" then
+    icon, name, sub = row[2], row[3], row[6] == "1" and "Passive" or row[4]
+    cell.count:SetText("")
+  elseif section == "bags" then
+    col, line, xstep, ystep = math.mod(index - 1, 8), math.floor((index - 1) / 8), 59, 48
+    icon, name, sub = row[3], "", ""
+    cell.count:SetText(tonumber(row[4]) > 1 and row[4] or "")
+  elseif section == "gear" then
+    icon, name = row[2], equipment[tonumber(row[1])] or "Equipment"
+    local _, _, itemName = string.find(row[3], "|h%[(.-)%]|h")
+    sub = itemName or "Empty"
+    cell.count:SetText("")
+    ystep = 49
+  elseif section == "talents" then
+    col, line, xstep, ystep = tonumber(row[5]) - 1, tonumber(row[4]) - 1, 118, 33
+    icon, name, sub = row[3], row[2], ""
+    cell.count:SetText(row[6] .. "/" .. row[7])
+  end
+  if not cell.isDock then
+    cell:ClearAllPoints()
+    cell:SetPoint("TOPLEFT", self.content, "TOPLEFT", col * xstep + 2, -line * ystep)
+    cell:SetWidth(section == "bags" and 44 or 115)
+  end
+  cell:SetHeight(cell.isDock and 32 or (section == "talents" and 32 or 43))
+  cell.name:SetText(name); cell.sub:SetText(sub); cell.tooltip = name
+  cell.icon:SetTexture(icon ~= "" and icon or "Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+  cell.icon:SetVertexColor(1, 1, 1)
+  cell.cooldown:SetText("")
+  cell:Show()
+end
+
+function U:CreateSetup()
+  local f = CreateFrame("Frame", nil, self.frame)
+  self.setup = f
+  f:SetWidth(450); f:SetHeight(318); f:SetPoint("BOTTOMLEFT", self.frame, "TOPLEFT", 0, 5)
+  f:SetFrameLevel(self.frame:GetFrameLevel() + 15); f:SetClampedToScreen(true)
+  f:EnableMouse(true); f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1)
+  label(f, "Pair characters", 13, 16, -16)
+  label(f, "Group both characters and use the same pairing code.", 10, 16, -43, 416)
+  label(f, "Other character", 10, 16, -80)
+  self.peer = edit(f, "zBoxPeerInput", 130, -72, 286)
+  label(f, "Pairing code", 10, 16, -119)
+  self.key = edit(f, "zBoxKeyInput", 130, -111, 194)
+  self.key:SetMaxLetters(32)
+  button(f, "Generate", 334, -111, 82, function() U.key:SetText(B:NewSession() .. B:NewSession()) end)
+  label(f, "Account 1: Control.  Account 2: Allow.", 10, 16, -155, 416)
+  button(f, "Control", 16, -177, 194, function() U:Pair("control") end)
+  button(f, "Allow", 222, -177, 194, function() U:Pair("agent") end)
+  label(f, "Only this character and realm. /zbox off revokes pairing.", 9, 16, -218, 416)
+  label(f, "Panel scale", 10, 16, -249, 104)
+  compactButton(f, "-", 130, -243, 28, function() U:SetScale(math.max(0.55, (B.db.uiScale or 0.85) - 0.05)) end)
+  self.scaleLabel = label(f, "85%", 10, 170, -249, 42)
+  compactButton(f, "+", 216, -243, 28, function() U:SetScale(math.min(1.25, (B.db.uiScale or 0.85) + 0.05)) end)
+  compactButton(f, "Reset", 258, -243, 72, function() U:SetScale(0.85) end)
+  button(f, "Disable / revoke", 16, -278, 170, function() B:Slash("off"); U:Refresh() end)
+  button(f, "Diagnostics", 196, -278, 128, function() B:Slash("diag") end)
+  button(f, "Close", 334, -278, 82, function() f:Hide() end)
+  f:Hide()
+end
+
+function U:Pair(role)
+  local ok, reason = B:Configure(role, self.peer:GetText(), self.key:GetText())
+  if not ok then B:Notify(reason); return end
+  self.peer:ClearFocus(); self.key:ClearFocus(); self.setup:Hide(); self:Refresh()
+end
+
+function U:ShowSetup()
+  B:ReleaseDirections()
+  self.frame:Show(); self.browser:Hide(); self.pad:Hide(); self.keys:Hide()
+  self.peer:SetText(B.db.peer or "")
+  self.key:SetText(B.db.key or "")
+  self.setup:Show()
+end
+
+function U:CreateDirectionPad()
+  local f = CreateFrame("Frame", "zBoxDirectionPad", UIParent)
+  self.pad = f
+  f:SetWidth(180); f:SetHeight(180); f:SetPoint("TOPLEFT", self.frame, "TOPRIGHT", 5, 0)
+  f:SetFrameStrata("DIALOG"); f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.04, 0.065, 0.97)
+  label(f, "Hold to move account 2", 10, 12, -12, 160)
+  local directions = { { "Forward", "forward", 57, -32 }, { "Left", "left", 8, -65 },
+    { "Back", "backward", 65, -65 }, { "Right", "right", 122, -65 },
+    { "Strafe L", "strafeleft", 15, -99 }, { "Strafe R", "straferight", 97, -99 } }
+  for i = 1, table.getn(directions) do
+    local row = directions[i]
+    local b = button(f, row[1], row[3], row[4], (i > 4 and 67 or 50), function() end)
+    b.axis = row[2]
+    b:SetScript("OnMouseDown", function()
+      if arg1 ~= "LeftButton" or not B.connected then return end
+      U:ReleaseAxis()
+      U.held = this.axis
+      B:HoldDirection(U.held, true, "mouse")
+    end)
+    b:SetScript("OnMouseUp", function() U:ReleaseAxis() end)
+    b:SetScript("OnLeave", function()
+      this:SetBackdropColor(0.09, 0.13, 0.18, 1)
+      if U.held == this.axis then U:ReleaseAxis() end
+    end)
+  end
+  button(f, "Assist", 12, -140, 72, function() U:Run("ASSIST") end)
+  button(f, "Jump", 96, -140, 72, function() U:Run("JUMP") end)
+  f:SetScript("OnHide", function() U:ReleaseAxis() end)
+  f:Hide()
+end
+
+function U:ReleaseAxis()
+  if self.held then
+    local axis = self.held
+    self.held = nil
+    B:HoldDirection(axis, false, "mouse")
+  end
+end
+
+function U:CreateMoveOverlay()
+  local f = CreateFrame("Frame", "zBoxMovePicker", UIParent)
+  self.moveOverlay = f
+  f:SetAllPoints(WorldFrame); f:SetFrameStrata("FULLSCREEN_DIALOG"); f:EnableMouse(true)
+  local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  hint:SetPoint("TOP", UIParent, "TOP", 0, -100)
+  hint:SetText("zBox: click terrain to move account 2. Right-click or Escape cancels.")
+  f:SetScript("OnMouseDown", function()
+    if arg1 == "LeftButton" then
+      local ok, reason = B:CaptureMove()
+      if not ok then B:Notify(reason); return end
+    end
+    U:CancelMove()
+  end)
+  f:Hide()
+  table.insert(UISpecialFrames, "zBoxMovePicker")
+end
+
+function U:ArmMove()
+  if not B.connected or B.db.role ~= "control" then B:Notify("Connect the second character first"); return end
+  if type(zAPI) ~= "function" then B:Notify("Click picking requires the zAPI DLL"); return end
+  if self.moveOverlay:IsShown() then self:CancelMove(); return end
+  self.moveOverlay:Show()
+end
+
+function U:CancelMove()
+  if self.moveOverlay then self.moveOverlay:Hide() end
+end
+
+function U:Toggle()
+  if not self.frame then return end
+  if self.frame:IsShown() then self.frame:Hide() else self.frame:Show() end
+end
+
+function U:Tick(now)
+  if not self.frame:IsShown() or now - self.lastTick < 0.15 then return end
+  self.lastTick = now
+  if self.dirty then self:Refresh() end
+  if self.noticeUntil and now > self.noticeUntil then self.toast:Hide() end
+  local cds = B.cache.cooldowns
+  if cds and cds.page == B.actionPage then
+    for _, cells in ipairs({ self.cells, self.dockCells }) do
+      for i = 1, table.getn(cells) do
+        local cell = cells[i]
+        local row = cell.section == "actions" and cell.row and cds.rows[tonumber(cell.row[1])]
+        if cell:IsShown() and row then
+          local remaining = math.max(0, tonumber(row[2]) - (now - cds.at))
+          cell.cooldown:SetText(remaining > 0.1 and tostring(math.ceil(remaining)) or "")
+          cell.count:SetText(tonumber(row[6]) > 1 and row[6] or "")
+          cell.icon:SetVertexColor(row[4] == "1" and 1 or 0.45, row[5] == "1" and 0.45 or 1, 1)
+        end
+      end
+    end
+  end
+end
+
+local keyRows = {
+  { "Move to click", "ZBOX_MOVE" }, { "Forward", "ZBOX_FORWARD" }, { "Backward", "ZBOX_BACKWARD" },
+  { "Turn left", "ZBOX_LEFT" }, { "Turn right", "ZBOX_RIGHT" },
+  { "Strafe left", "ZBOX_STRAFELEFT" }, { "Strafe right", "ZBOX_STRAFERIGHT" },
+  { "Follow main", "ZBOX_FOLLOW" }, { "Assist main", "ZBOX_ASSIST" }, { "Jump", "ZBOX_JUMP" },
+  { "Emergency stop", "ZBOX_STOP" }, { "Show / hide panel", "ZBOX_TOGGLE" }
+}
+
+function U:CreateKeys()
+  local f = CreateFrame("Frame", "zBoxKeys", self.frame)
+  self.keys, self.keyButtons = f, {}
+  f:SetWidth(396); f:SetHeight(376); f:SetPoint("BOTTOMRIGHT", self.frame, "TOPRIGHT", 0, 5)
+  f:SetFrameLevel(self.frame:GetFrameLevel() + 20); f:SetClampedToScreen(true)
+  f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1); f:EnableMouse(true)
+  label(f, "Account 2 keybindings", 13, 14, -15)
+  button(f, "x", 364, -8, 20, function() f:Hide() end)
+  self.keyHint = label(f, "Click a binding, then press a key or mouse button.", 9, 14, -43, 368)
+  self.keyHint:SetHeight(28)
+  for i = 1, table.getn(keyRows) do
+    local entry = keyRows[i]
+    label(f, entry[1], 10, 14, -80 - (i - 1) * 24, 165)
+    local b = button(f, "Unbound", 196, -72 - (i - 1) * 24, 186, function()
+      U.bindingCapture = this.binding
+      U.keyHint:SetText("Press a key. Escape cancels; Backspace clears this binding.")
+      f:EnableKeyboard(true)
+    end)
+    b.binding = entry[2]; self.keyButtons[i] = b
+  end
+  f:SetScript("OnKeyDown", function() U:CaptureBinding(arg1) end)
+  f:SetScript("OnMouseUp", function()
+    local map = { MiddleButton = "BUTTON3", Button4 = "BUTTON4", Button5 = "BUTTON5" }
+    if map[arg1] then U:CaptureBinding(map[arg1]) end
+  end)
+  f:EnableMouseWheel(true)
+  f:SetScript("OnMouseWheel", function() U:CaptureBinding(arg1 > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
+  f:SetScript("OnHide", function() U.bindingCapture = nil; f:EnableKeyboard(false) end)
+  f:EnableKeyboard(false); f:Hide()
+end
+
+function U:ShowKeys()
+  B:ReleaseDirections()
+  self.frame:Show(); self.setup:Hide(); self.browser:Hide(); self.pad:Hide()
+  self:RefreshKeys(); self.keys:Show()
+end
+
+function U:RefreshKeys()
+  for i = 1, table.getn(self.keyButtons) do
+    local b = self.keyButtons[i]
+    local first, second
+    if GetBindingKey then first, second = GetBindingKey(b.binding) end
+    b.caption:SetText(first and (first .. (second and (" / " .. second) or "")) or "Unbound")
+  end
+end
+
+function U:CaptureBinding(key)
+  local binding = self.bindingCapture
+  if not binding then return end
+  if key == "LSHIFT" or key == "RSHIFT" or key == "LCTRL" or key == "RCTRL" or key == "LALT" or key == "RALT" then return end
+  if key ~= "ESCAPE" and SetBinding and GetBindingKey then
+    local chord = (IsAltKeyDown() and "ALT-" or "") .. (IsControlKeyDown() and "CTRL-" or "") ..
+      (IsShiftKeyDown() and "SHIFT-" or "") .. key
+    local first, second = GetBindingKey(binding)
+    -- Assign first so an unsupported key cannot destroy the existing binding.
+    if key ~= "BACKSPACE" and not SetBinding(chord, binding) then
+      self.keyHint:SetText("That key cannot be bound. Choose another."); return
+    end
+    if first and first ~= chord then SetBinding(first) end
+    if second and second ~= chord then SetBinding(second) end
+    if key == "BACKSPACE" then
+      if first then SetBinding(first) end
+      if second then SetBinding(second) end
+    end
+    if SaveBindings then SaveBindings(GetCurrentBindingSet and GetCurrentBindingSet() or 1) end
+  end
+  self.bindingCapture = nil; self.keys:EnableKeyboard(false); self:RefreshKeys()
+  self.keyHint:SetText("Click a binding, then press a key or mouse button.")
+end
