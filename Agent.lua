@@ -261,7 +261,7 @@ function B:ChooseTarget(descriptor)
   if descriptor == "KEEP" then return true end
   if descriptor == "SELF" then return self:Invoke("TargetUnit", "player") end
   if descriptor == "MAIN" then
-    local unit = self:GroupUnit(self.db.peer)
+    local unit = self:PeerUnit()
     if unit then return self:Invoke("TargetUnit", unit) end
     return false, "Main character is not available"
   end
@@ -347,7 +347,7 @@ function B:Execute(fields)
     if AttackTarget and IsCurrentSpell and IsCurrentSpell("Attack") then self:Invoke("AttackTarget") end
     return stopped, stopped and "Stopped movement and casting" or reason
   elseif command == "FOLLOW" then
-    local unit = self:GroupUnit(self.db.peer)
+    local unit = self:PeerUnit()
     if not unit then return false, "Main character is unavailable" end
     self:StopMovement()
     local ok, detail = self:Invoke("FollowUnit", unit)
@@ -360,7 +360,7 @@ function B:Execute(fields)
   elseif command == "NPC" then
     return self:NPCAction(fields[2], fields[3], fields[4])
   elseif command == "ASSIST" then
-    local unit = self:GroupUnit(self.db.peer)
+    local unit = self:PeerUnit()
     if not unit then return false, "Main character is unavailable" end
     return self:Invoke("AssistUnit", unit)
   elseif command == "MOVETO" then

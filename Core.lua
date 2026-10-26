@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.5.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.6.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -41,8 +41,24 @@ function B:GroupUnit(name)
 end
 
 function B:Channel()
+  if self:GetBridgeInfo().directWhisper then return "WHISPER" end
+  if self.db and not self:GroupUnit(self.db.peer) then return nil end
   if GetNumRaidMembers and GetNumRaidMembers() > 0 then return "RAID" end
   if GetNumPartyMembers and GetNumPartyMembers() > 0 then return "PARTY" end
+end
+
+function B:PeerUnit()
+  local grouped = self:GroupUnit(self.db.peer)
+  if grouped then return grouped end
+  if not self.peerGUID then return end
+  local ok, exists = pcall(UnitExists,self.peerGUID)
+  if not ok or not exists then return end
+  local named, name = pcall(UnitName,self.peerGUID)
+  if named and self:Name(name)==self:Name(self.db.peer) then return self.peerGUID end
+end
+
+function B:SetPeerGUID(guid)
+  self.peerGUID = type(guid)=="string" and string.find(guid,"^0x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x$") and guid or nil
 end
 
 function B:GUID(unit)
@@ -60,12 +76,13 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
       info.jumpEvents = contract >= 4
       info.nativeMove = contract >= 5
+      info.directWhisper = contract >= 6
     else
       info.label = "Bridge update required"
     end
@@ -74,17 +91,47 @@ function B:GetBridgeInfo()
   return info
 end
 
+function B:DependencyReport()
+  local apiVersion = "missing"
+  if type(zAPI)=="function" then
+    local ok, version = pcall(zAPI,"version")
+    apiVersion = ok and version and tostring(version) or "loaded/version unknown"
+  end
+  local npVersion = "not reported"
+  if type(GetNampowerVersion)=="function" then
+    local ok, major, minor, patch = pcall(GetNampowerVersion)
+    if ok and major then npVersion=tostring(major).."."..tostring(minor or 0).."."..tostring(patch or 0) end
+  end
+  local ok, guid = pcall(self.GUID,self,"player")
+  local lookup = "no player GUID"
+  if ok and guid ~= "" then
+    local previous = self.dependencyProbe
+    self.dependencyProbe = true
+    local accepted, exists = pcall(UnitExists,guid)
+    self.dependencyProbe = previous
+    lookup = accepted and exists and "ok" or "FAILED"
+  end
+  return "UnitXP="..(type(UnitXP)=="function" and "loaded" or "missing")..
+    ", zAPI="..apiVersion..", SuperWoW="..tostring(SUPERWOW_VERSION or "not reported")..
+    ", ClassicAPI="..tostring(CLASSIC_API_VERSION or "not reported")..", Nampower="..npVersion..
+    ", GUID lookup="..lookup..", facing="..(type(GetPlayerFacing)=="function" and "ready" or "missing")..
+    ", spell info="..(type(GetSpellInfo)=="function" and "ready" or "missing")
+end
+
 function B:Diagnostics()
   local info = self:GetBridgeInfo()
   local report = "Addon " .. self.version .. "; " .. info.label .. "; " ..
     (self.lastInvoke or "No input requested since reload") .. "; cast event=" .. (self.lastCastSignal or "none") ..
     "; pick=" .. (self.lastPick or "none") .. "; jump sequence=" .. tostring(self.lastMirrorJump or "none")
   report = report .. "; movement=" .. (self.lastMovementMethod or "none") .. "; pet=" .. (self.petState and self.petState.mode or "off")
+  if self.lastGameError then report = report .. "; last game error=" .. self.lastGameError .. " @ " .. (self.lastGameErrorCall or "between zBox calls") end
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
   end
   if self.NPCGuardStatus then report = report .. "; NPC automation=" .. self:NPCGuardStatus() end
+  report = report .. "; dependencies: " .. self:DependencyReport()
+  report = report .. "; transport=" .. (self:Channel() or "No transport: ungrouped pairing needs bridge 0.1.7")
   return report
 end
 
@@ -99,12 +146,18 @@ function B:Invoke(name, a, b, c)
   -- The optional, separate bridge confines execution context changes to its
   -- fixed API allowlist. It never replaces or updates the shared zAPI DLL.
   if type(zBoxNative) == "function" then
+    local previous = self.activeInvoke
+    self.activeInvoke = name .. "(" .. (a ~= nil and tostring(a) or "") .. ")"
     local ok, result, detail = pcall(zBoxNative, name, a, b, c)
+    self.activeInvoke = previous
     self.lastInvoke = name .. ": " .. tostring(ok and detail or result)
     if not ok then return false, tostring(result) end
     return result == 1, detail
   end
+  local previous = self.activeInvoke
+  self.activeInvoke = name .. "(" .. (a ~= nil and tostring(a) or "") .. ")"
   local ok, reason = pcall(fn, a, b, c)
+  self.activeInvoke = previous
   self.lastInvoke = name .. ": " .. (ok and "Requested through Lua" or tostring(reason))
   if not ok then return false, tostring(reason) end
   return true
@@ -128,7 +181,7 @@ function B:Configure(role, peer, key)
   self.db.enabled = true
   self.session = role == "control" and self:NewSession() or nil
   self.lastHello = -10
-  self:Notify(role == "control" and ("Connecting to " .. peer .. "; both characters must be grouped") or
+  self:Notify(role == "control" and ("Connecting to " .. peer .. (self:GetBridgeInfo().directWhisper and " by addon whisper" or "; ungrouped pairing needs bridge 0.1.7")) or
     ("Allowing commands from " .. peer .. " on " .. self.db.realm))
   return true
 end
@@ -136,6 +189,7 @@ end
 function B:Disconnect(reason)
   if self.StopMovement then self:StopMovement() end
   self.connected, self.session, self.lastReceive = false, nil, nil
+  self.peerGUID = nil
   if self.RestoreNPCGuards then self:RestoreNPCGuards() end
   self.cache, self.pending, self.incoming = {}, {}, {}
   self.queueHigh, self.queueLow, self.lowIndex, self.highIndex = {}, {}, 1, 1
@@ -144,11 +198,13 @@ function B:Disconnect(reason)
   self.lastBarSnapshotID, self.heldInputs, self.heldMask = nil, {}, 0
   self.heldModifiers = {}
   self.castRequestAt, self.lastCastSignal, self.lastCastFeedbackAt = nil, nil, nil
+  self.lastGameError, self.lastGameErrorCall = nil,nil
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
   self.lastMirrorJump = nil
   if self.ResetMacroCooldowns then self:ResetMacroCooldowns() end
   if self.UI then
+    if self.UI.EndBinding then self.UI:EndBinding() end
     self.UI.held, self.UI.hovered = nil, nil
     self.UI.bagAwaiting, self.UI.questSelected = nil, nil
     self.UI:CancelMove()
@@ -160,8 +216,7 @@ function B:Disconnect(reason)
 end
 
 function B:IsEnabled()
-  return self.db and self.db.enabled and self.db.realm == self:Realm() and self:Channel() and
-    self:GroupUnit(self.db.peer) ~= nil
+  return self.db and self.db.enabled and self.db.realm == self:Realm() and self:Channel() ~= nil
 end
 
 function B:TargetDescriptor(selfCast)
@@ -185,7 +240,7 @@ function B:Command(command, fields)
   table.insert(fields, 1, command)
   if command == "STOP" then
     self.mirrorPaused = true
-    self:SendNow("CMD", fields)
+    if not self:SendNow("CMD", fields) then return false, self.notice or "Could not send Stop" end
     self.notice = "Emergency stop sent"
     return true
   end
@@ -263,7 +318,7 @@ function B:Slash(message)
     self:Print(self:Diagnostics())
     if self.connected and self.db.role == "control" then self:Send("DIAG", {}, true) end
   elseif command == "help" then
-    self:Print("Group both characters. On account 2: /zbox allow MainName sharedcode")
+    self:Print("On account 2: /zbox allow MainName sharedcode; party membership is not required with bridge 0.1.7.")
     self:Print("On account 1: /zbox control AltName sharedcode (same code, 8-32 characters)")
     self:Print("/zbox = panel; /zbox stop = emergency stop; /zbox off = revoke pairing")
     self:Print("Click-to-move needs zAPI and GetPlayerFacing; zBoxBridge enables protected inputs.")
@@ -319,7 +374,7 @@ frame:SetScript("OnEvent", function()
     B.worldSuspended = false
     B.lastHello = -10
   elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
-    if not B:IsEnabled() then B:Disconnect("Peer is not in the group") end
+    if not B:IsEnabled() then B:Disconnect("Pairing transport unavailable") end
   elseif npcEventSet[event] then
     if B.db.role == "agent" then B:NPCEvent(event) end
   elseif event == "QUEST_LOG_UPDATE" then
@@ -329,7 +384,8 @@ frame:SetScript("OnEvent", function()
       if B.UI then B.UI.dirty = true end
     end
   elseif event == "UI_ERROR_MESSAGE" then
-    if B.connected and B.db.role == "agent" and B.lastCommandAt and GetTime() - B.lastCommandAt < 2 then
+    if not B.dependencyProbe and B.connected and B.db.role == "agent" and B.lastCommandAt and GetTime() - B.lastCommandAt < 2 then
+      B.lastGameError, B.lastGameErrorCall = tostring(arg1 or "Game action failed"), B.activeInvoke
       B:Send("ERROR", { tostring(arg1 or "Game action failed") }, true)
     end
   elseif event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then

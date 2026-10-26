@@ -99,7 +99,7 @@ end
 
 function B:PetFollow(state)
   state = state or self.petState
-  local main = self:GroupUnit(self.db.peer)
+  local main = self:PeerUnit()
   if not main then self:StopMovement(); return false, "Main character is unavailable" end
   local ok, reason = self:StopMovement(nil, true, true)
   if not ok then self:CancelPet(); return false, reason end
@@ -125,7 +125,7 @@ function B:ReceivePet(order, guid, style)
   local ok, reason = self:StopMovement(nil, true)
   if not ok then return false, reason end
   self.petState = { mode = order == "assist" and "assist" or "follow", style = self:PetStyle(style) }
-  local main = self:GroupUnit(self.db.peer)
+  local main = self:PeerUnit()
   self.petState.lastMainTarget = main and self:GUID(main .. "target") or ""
   if order ~= "follow" and self:PetEnemy(guid) then
     self.petState.guid, self.petState.started = guid, GetTime()
@@ -219,7 +219,7 @@ function B:PetTick(now)
   local state = self.petState
   if not state then return end
   if UnitIsDeadOrGhost("player") then self:StopMovement(); return end
-  local main = self:GroupUnit(self.db.peer)
+  local main = self:PeerUnit()
   if not main then self:StopMovement(); return end
   local mainCombat, ownCombat = UnitAffectingCombat(main), UnitAffectingCombat("player")
   local combat = mainCombat or ownCombat

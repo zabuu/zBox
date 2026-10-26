@@ -181,7 +181,7 @@ function U:RenderGear(view)
   local status = B.cache.status
   self.gearName:SetText(B.db.peer or "Account 2")
   self.gearInfo:SetText(status and ("Level " .. status[3] .. " " .. status[4]) or "")
-  local unit = B.connected and B:GroupUnit(B.db.peer)
+  local unit = B.connected and B:PeerUnit()
   if unit and (not UnitIsVisible or UnitIsVisible(unit)) then
     if self.gearModelUnit ~= unit or self.gearModelSnapshot ~= view.id then
       self.gearModel:SetUnit(unit); self.gearModel:SetRotation(0.4)

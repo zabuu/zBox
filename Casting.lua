@@ -124,7 +124,7 @@ function B:CastingTick(now)
     if held then self:FaceCastTarget() else self.castFacingGUID = nil end
   end
   if not self.resumeFollow or held then return end
-  local unit = self:GroupUnit(self.db.peer)
+  local unit = self:PeerUnit()
   if not unit or UnitAffectingCombat("player") or UnitAffectingCombat(unit) then self.followQuietAt = nil; return end
   self.followQuietAt = self.followQuietAt or now
   if now - self.followQuietAt < 0.5 then return end

@@ -1,9 +1,10 @@
 # Native bridge
 
-Version 0.1.6, capability contract 5, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.7, capability contract 6, for the guarded WoW 1.12.1.5875 x86 image.
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.
+Contract 6 also adds directed addon whispers for pairing without a party.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped
@@ -37,6 +38,25 @@ to 1.5-15 yards. Lua additionally checks hostility, life, floor and clear corrid
 The fixed Lua API allowlist adds non-toggling `StartAttack`/`StopAttack` and
 `CastSpellNoToggle` restricted to spell ID 75 (Auto Shot), provided by ClassicAPI.
 
+Contract 6 adds `Whisper(pairedName, packet)`. The stock 1.12 addon API only
+accepts party, raid, guild and battleground channels. This helper sends the
+ordinary `CMSG_MESSAGECHAT` whisper envelope with addon language `0xFFFFFFFF`,
+the fixed prefix `zBox2`, and a bounded printable zBox protocol frame. The
+recipient and frame are validated; arbitrary opcodes, chat types and languages
+cannot be supplied. Lua still checks the configured sender, realm, pairing
+code and session on receipt. Server whisper restrictions remain in force.
+There is no local-network service or regular-chat fallback.
+Stock 1.12's addon-event channel map labels incoming whisper type 6 `UNKNOWN`;
+Lua accepts that label on the direct route, along with `WHISPER` from client
+mods. Group-channel messages cannot enter a direct pairing. The same sender,
+code and session checks apply to both accepted labels.
+
+The caller-owned 24-byte `CDataStore` and bounded 384-byte buffer stay alive
+through the synchronous sender. The normal addon sender frees its own store
+immediately after the same call. Transport requests do not overwrite the last
+game-input diagnostic. These paths need live verification on the target server;
+offline fixtures validate the envelope, not the server's configuration.
+
 The new client calls were checked in the actual executable:
 
 | Function | Address | Calling convention |
@@ -47,6 +67,7 @@ The new client calls were checked in the actual executable:
 | Send movement update | `0x600A30` | thiscall, player in ECX, timestamp/opcode/float/zero, pops 16 |
 | Cancel follow/CTM | `0x60FB60` | thiscall, player in ECX, zero/stop flags, pops 8 |
 | Ground point movement | `0x611130` | thiscall, player in ECX, mode/GUID pointer/XYZ pointer/float, pops 16 |
+| Chat packet send | `0x5AB630` | thiscall, caller-owned CDataStore in ECX, no stack arguments |
 
 The local object manager at `0xB41414` holds the player GUID at +`0xC0`.
 Movement flags and heading are read at player +`0x9E8` and +`0x9C4`.
@@ -68,4 +89,4 @@ or substitute for an in-game test.
 
 Build with `native/build.ps1`; run `tests/test_native.ps1` for scoped-call,
 exception/reentry restoration, movement observer argument/context/counter checks,
-native point-move argument/layout checks, and unsupported-image rejection checks.
+native point-move and addon-whisper envelope/layout checks, and unsupported-image rejection checks.

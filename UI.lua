@@ -476,7 +476,7 @@ function U:Refresh()
     view = { section = "quests", page = B.page, rows = rows, title = "Main only - missing on account 2", maximum = math.max(1, math.ceil(table.getn(all)/5)), displayPage = page }
   end
   self.connection:SetText(B.connected and ((B.db.peer or "") .. "  /  Connected") or
-    (B.db.enabled and ("Waiting for " .. (B.db.peer or "peer") .. " in your group") or "Not paired"))
+    (B.db.enabled and ("Waiting for " .. (B.db.peer or "peer")) or "Not paired"))
   self.connection:SetTextColor(B.connected and 0.3 or 1, B.connected and 0.95 or 0.7, 0.7)
   local status = B.cache.status
   self.followButton.caption:SetText(B.db.mirrorMovement and (B.mirrorPaused and "Mirror II" or "Mirror ON") or "Follow")
@@ -538,7 +538,7 @@ function U:Refresh()
   if not view or view.section ~= B.view or view.page ~= B.page then
     self.viewTitle:SetText("Account 2 - " .. B.view)
     self.pageLabel:SetText(tostring(B.page))
-    self.empty:SetText(B.connected and "Loading from account 2..." or "Pair both characters and put them in the same party.")
+    self.empty:SetText(B.connected and "Loading from account 2..." or "Pair both characters in Setup.")
     self.empty:Show()
     if B.view == "bags" then self:RenderBags({ page = B.page }); self.empty:Hide() end
   else
@@ -631,7 +631,7 @@ function U:CreateSetup()
   f:SetFrameLevel(self.frame:GetFrameLevel() + 15); f:SetClampedToScreen(true)
   f:EnableMouse(true); f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1)
   label(f, "Pair characters", 13, 16, -16)
-  label(f, "Group both characters and use the same pairing code.", 10, 16, -43, 416)
+  label(f, "Same realm and pairing code. No party needed with bridge 0.1.7.", 10, 16, -43, 416)
   label(f, "Other character", 10, 16, -80)
   self.peer = edit(f, "zBoxPeerInput", 130, -72, 286)
   label(f, "Pairing code", 10, 16, -119)
@@ -832,25 +832,55 @@ function U:CreateKeys()
   button(f, "x", 364, -8, 20, function() f:Hide() end)
   self.keyHint = label(f, "Click a binding, then press a key or mouse button.", 9, 14, -43, 368)
   self.keyHint:SetHeight(28)
+  local capture = CreateFrame("Frame", "zBoxBindingCapture", UIParent)
+  self.bindingCover = capture
+  capture:SetAllPoints(UIParent); capture:SetFrameStrata("FULLSCREEN_DIALOG"); capture:SetFrameLevel(1000)
+  capture:EnableMouse(true); capture:EnableKeyboard(true); capture:EnableMouseWheel(true)
+  capture:SetScript("OnKeyDown", function() U:CaptureBinding(arg1) end)
+  -- Capture a fresh press, not the release of the click that armed this frame.
+  -- A separate full-screen surface also receives buttons above other controls.
+  capture:SetScript("OnMouseDown", function() U:CaptureMouseBinding(arg1) end)
+  capture:SetScript("OnMouseWheel", function() U:CaptureBinding(arg1 > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
+  capture:SetScript("OnHide", function()
+    U.bindingCapture = nil
+    f:EnableKeyboard(false)
+    U.keyHint:SetText("Click a binding, then press a key or mouse button.")
+  end)
+  capture:Hide()
   for i = 1, table.getn(keyRows) do
     local entry = keyRows[i]
     label(f, entry[1], 10, 14, -80 - (i - 1) * 24, 165)
     local b = button(f, "Unbound", 196, -72 - (i - 1) * 24, 186, function()
-      U.bindingCapture = this.binding
-      U.keyHint:SetText("Press a key. Escape cancels; Backspace clears this binding.")
-      f:EnableKeyboard(true)
+      U:BeginBinding(this.binding)
     end)
     b.binding = entry[2]; self.keyButtons[i] = b
   end
   f:SetScript("OnKeyDown", function() U:CaptureBinding(arg1) end)
-  f:SetScript("OnMouseUp", function()
-    local map = { MiddleButton = "BUTTON3", Button4 = "BUTTON4", Button5 = "BUTTON5" }
-    if map[arg1] then U:CaptureBinding(map[arg1]) end
-  end)
-  f:EnableMouseWheel(true)
-  f:SetScript("OnMouseWheel", function() U:CaptureBinding(arg1 > 0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
-  f:SetScript("OnHide", function() U.bindingCapture = nil; f:EnableKeyboard(false) end)
+  f:SetScript("OnHide", function() U:EndBinding() end)
   f:EnableKeyboard(false); f:Hide()
+end
+
+function U:BeginBinding(binding)
+  self.bindingCapture = binding
+  self.keyHint:SetText("Press a key, mouse button or scroll. Escape cancels; Backspace clears.")
+  self.bindingCover:Show()
+end
+
+function U:EndBinding()
+  self.bindingCapture = nil
+  if self.bindingCover then self.bindingCover:Hide() end
+  if self.keys then self.keys:EnableKeyboard(false); self:RefreshKeys() end
+  if self.keyHint then self.keyHint:SetText("Click a binding, then press a key or mouse button.") end
+end
+
+function U:CaptureMouseBinding(mouse)
+  local keys = { LeftButton="BUTTON1",RightButton="BUTTON2",MiddleButton="BUTTON3" }
+  local key = keys[mouse]
+  if not key then
+    local _,_,number = string.find(mouse or "", "^Button(%d+)$")
+    if number and tonumber(number)>=4 and tonumber(number)<=31 then key="BUTTON"..number end
+  end
+  if key then self:CaptureBinding(key) end
 end
 
 function U:ShowKeys()
@@ -888,6 +918,5 @@ function U:CaptureBinding(key)
     end
     if SaveBindings then SaveBindings(GetCurrentBindingSet and GetCurrentBindingSet() or 1) end
   end
-  self.bindingCapture = nil; self.keys:EnableKeyboard(false); self:RefreshKeys()
-  self.keyHint:SetText("Click a binding, then press a key or mouse button.")
+  self:EndBinding()
 end

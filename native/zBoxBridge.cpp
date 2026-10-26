@@ -9,6 +9,7 @@
 #include "ScopedInvoke.h"
 #include "MovementObserver.h"
 #include "NativeMove.h"
+#include "NativeWhisper.h"
 
 namespace {
 uintptr_t base = 0;
@@ -220,18 +221,29 @@ int response(void *L, bool ok, const char *detail) {
   return 2;
 }
 
+bool whisper(const char *peer, const char *frame) {
+  __try {
+    if (!*at<uint8_t *>(0x00B4B424)) return false;
+    uint8_t buffer[384]{};
+    ZBoxChatStore packet{};
+    if (!ZBoxBuildWhisper(peer,frame,at<void *>(0x007FF9E4),packet,buffer)) return false;
+    at<ZBoxChatSend>(0x005AB630)(&packet);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.6");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.7");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.6");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 5 : 3);
+    response(L, true, "zBoxBridge 0.1.7");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 6 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.6; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.7; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name, "inputs")) {
@@ -242,6 +254,14 @@ int __fastcall bridge(void *L) {
     at<PushNumber>(0x006F3810)(L, heading);
     at<PushNumber>(0x006F3810)(L, jumpSequence());
     return 4;
+  }
+  if (!std::strcmp(name, "Whisper")) {
+    if (type(L,2)!=4 || type(L,3)!=4) return response(L,false,"Expected paired name and zBox packet");
+    if (InterlockedCompareExchange(&busy,1,0)!=0) return response(L,false,"Input busy");
+    const bool result=whisper(str(L,2),str(L,3));
+    InterlockedExchange(&busy,0);
+    // Transport does not replace the last game-input diagnostic.
+    return response(L,result,result ? "Addon whisper requested" : "Addon whisper rejected");
   }
   if (!std::strcmp(name, "StopFollow")) {
     if (InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Input busy");

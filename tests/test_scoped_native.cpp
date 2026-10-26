@@ -4,6 +4,7 @@
 #include "../native/ScopedInvoke.h"
 #include "../native/MovementObserver.h"
 #include "../native/NativeMove.h"
+#include "../native/NativeWhisper.h"
 
 uint32_t context = 123, depth = 7, bindingExecuting = 0;
 volatile LONG busy = 0;
@@ -66,6 +67,26 @@ int main(int argc, char **argv) {
   const ZBoxPoint point{1.25f,-2.5f,3.0f};
   assert(ZBoxSubmitMove(mover,0x1234,point));moveResult=false;
   assert(!ZBoxSubmitMove(mover,0x1234,point) && moveCalls==2);
+  static_assert(sizeof(ZBoxChatStore)==24,"Client chat store layout");
+  uint8_t chatBuffer[384]{}; ZBoxChatStore chat{};
+  const char *frame="2~testcode123~session~1~1~1~PING~";
+  assert(ZBoxBuildWhisper("OtherName",frame,reinterpret_cast<void *>(0x1234),chat,chatBuffer));
+  uint32_t header[3]{};std::memcpy(header,chat.buffer,sizeof(header));
+  assert(header[0]==0x95 && header[1]==6 && header[2]==0xFFFFFFFFu);
+  assert(chat.buffer==chatBuffer && chat.base==0 && chat.allocation==384 && chat.read==0);
+  assert(!std::strcmp(reinterpret_cast<char *>(chat.buffer+12),"OtherName"));
+  const char *message=reinterpret_cast<char *>(chat.buffer+22);
+  assert(!std::strncmp(message,"zBox2\t",6) && !std::strcmp(message+6,frame));
+  assert(chat.size==12+10+6+std::strlen(frame)+1 && chat.size<sizeof(chatBuffer));
+  assert(!ZBoxBuildWhisper("",frame,nullptr,chat,chatBuffer));
+  assert(!ZBoxBuildWhisper("--",frame,nullptr,chat,chatBuffer));
+  assert(!ZBoxBuildWhisper("Bad Name",frame,nullptr,chat,chatBuffer));
+  assert(!ZBoxBuildWhisper("Other","ordinary chat",nullptr,chat,chatBuffer));
+  assert(!ZBoxBuildWhisper("Other","2~bad|escape",nullptr,chat,chatBuffer));
+  assert(!ZBoxBuildWhisper("Other","2~bad\nline",nullptr,chat,chatBuffer));
+  char longest[250]{};std::memset(longest,'x',sizeof(longest)-1);longest[0]='2';longest[1]='~';
+  assert(!ZBoxBuildWhisper("Other",longest,nullptr,chat,chatBuffer));
+  longest[248]=0;assert(ZBoxBuildWhisper("Other",longest,nullptr,chat,chatBuffer));
   if (argc > 1) {
     HMODULE dll = LoadLibraryA(argv[1]);
     assert(dll);
@@ -76,4 +97,5 @@ int main(int argc, char **argv) {
   std::puts("PASS: full binding input context survives Lua restamping; context/depth/executing restored after success, Lua error, SEH, reentry and nested state; unsupported executable rejected");
   std::puts("PASS: native movement observer preserves thiscall arguments, return values and execution context; only completed jump sends increment the counter, including wrap");
   std::puts("PASS: native move submission preserves XYZ layout, fixed ground verb/zero GUID, thiscall arguments, boolean return and input context");
+  std::puts("PASS: bounded caller-owned addon whisper envelope, fixed opcode/type/language/prefix, peer validation, printable packet/length checks and no engine allocation");
 }

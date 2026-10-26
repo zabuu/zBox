@@ -21,6 +21,9 @@ function B:HoldDirection(axis, down, source)
     self.heldInputs[key] = axis
     if (source or "key") == "key" then self.heldModifiers[key] = modifiers() end
   else
+    -- Rebinding/capture can produce a release without a zBox press. Do not
+    -- send a stray zero mask that would cancel account 2's follow or Pet order.
+    if not self.heldInputs[key] then return end
     self.heldInputs[key] = nil
     self.heldModifiers[key] = nil
   end

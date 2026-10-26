@@ -14,8 +14,9 @@ function B:Encode(fields)
   local encoded = {}
   for i = 1, table.getn(fields) do
     -- Addon messages still pass the client's chat-escape validator. Keep
-    -- literal pipes and control bytes out of every layer of the wire format.
-    encoded[i] = string.gsub(tostring(fields[i]), "[%%%c|%^]", function(c)
+    -- literal pipes, control bytes and UTF-8 bytes out of every wire layer.
+    -- Decode restores localized text after all fragments have arrived.
+    encoded[i] = string.gsub(tostring(fields[i]), "[%%%c|%^\128-\255]", function(c)
       return string.format("%%%02X", string.byte(c))
     end)
   end
@@ -55,10 +56,22 @@ function B:Send(kind, fields, high)
 end
 
 function B:SendNow(kind, fields)
-  if not self:IsEnabled() or self.worldSuspended then return end
+  if not self:IsEnabled() or self.worldSuspended then return false end
   local packets = self:Packets(kind, fields)
-  if not packets then return end
-  for i = 1, table.getn(packets) do SendAddonMessage(self.prefix, packets[i], self:Channel()) end
+  if not packets then return false end
+  for i = 1, table.getn(packets) do if not self:Transmit(packets[i]) then return false end end
+  return true
+end
+
+function B:Transmit(packet)
+  if self:Channel()=="WHISPER" then
+    local ok, result, reason = pcall(zBoxNative,"Whisper",self.db.peer,packet)
+    if ok and result==1 then return true end
+    self:Disconnect("Addon whisper failed: "..tostring(ok and reason or result))
+    return false
+  end
+  SendAddonMessage(self.prefix,packet,self:Channel())
+  return true
 end
 
 function B:Pump(now, elapsed)
@@ -77,14 +90,18 @@ function B:Pump(now, elapsed)
   while self.tokens >= 1 do
     local packet = take(self.queueHigh, "highIndex") or take(self.queueLow, "lowIndex")
     if not packet then break end
-    SendAddonMessage(self.prefix, packet, self:Channel())
+    if not self:Transmit(packet) then break end
     self.tokens = self.tokens - 1
   end
 end
 
 function B:Receive(prefix, message, channel, sender)
   if prefix ~= self.prefix or not self:IsEnabled() or self.worldSuspended then return end
-  if channel ~= self:Channel() or self:Name(sender) ~= self:Name(self.db.peer) then return end
+  local expected = self:Channel()
+  -- Stock 1.12 emits addon whispers as UNKNOWN; its addon-event channel map
+  -- names only party/raid/guild/battleground. Some client mods label WHISPER.
+  if channel ~= expected and not (expected == "WHISPER" and channel == "UNKNOWN") then return end
+  if self:Name(sender) ~= self:Name(self.db.peer) then return end
   if type(message) ~= "string" or string.len(message) > 254 then return end
   local _, _, version, key, session, idText, partText, countText, kind, chunk =
     string.find(message, "^(%d+)~([^~]+)~([%w]+)~(%d+)~(%d+)~(%d+)~([A-Z]+)~(.*)$")
@@ -122,15 +139,17 @@ function B:Message(kind, fields, id, now)
   if kind == "HELLO" and self.db.role == "agent" then
     if fields[1] ~= self:Realm() then return end
     self.connected, self.lastReceive = true, now
+    self:SetPeerGUID(fields[3])
     if self.InstallNPCGuards then self:InstallNPCGuards() end
     self:Send("READY", { self.version, self:Realm(), UnitName("player"),
-      type(zBoxNative) == "function" and "bridge" or "lua" }, true)
+      type(zBoxNative) == "function" and "bridge" or "lua", self:GUID("player") }, true)
     self.activeView = self.activeView or { section = "actions", page = 1 }
     self.viewDirty, self.barDirty = true, true
   elseif kind == "READY" and self.db.role == "control" then
-    if fields[2] ~= self:Realm() then return end
+    if fields[2] ~= self:Realm() or self:Name(fields[3]) ~= self:Name(self.db.peer) then return end
     local wasConnected = self.connected
     self.connected, self.lastReceive, self.bridgeMode = true, now, fields[4]
+    self:SetPeerGUID(fields[5])
     if not wasConnected then
       self.notice = "Connected to " .. self.db.peer
       self:Request(self.view or "actions", self.page or 1)
@@ -196,7 +215,7 @@ end
 function B:Tick(now, elapsed)
   if self.NPCGuardTick then self:NPCGuardTick(now) end
   if self.worldSuspended or not self:IsEnabled() then
-    if self.connected then self:Disconnect("Pairing inactive or peer left the group") end
+    if self.connected then self:Disconnect("Pairing inactive or transport unavailable") end
     return
   end
   if self.connected and self.lastReceive and now - self.lastReceive > 4 then
@@ -205,7 +224,7 @@ function B:Tick(now, elapsed)
   end
   if self.db.role == "control" and not self.connected and now - self.lastHello >= 2 then
     self.session = self.session or self:NewSession()
-    self:Send("HELLO", { self:Realm(), self.version }, true)
+    self:Send("HELLO", { self:Realm(), self.version, self:GUID("player") }, true)
     self.lastHello = now
   end
   if self.connected and now - self.lastHeartbeat >= 0.8 then
