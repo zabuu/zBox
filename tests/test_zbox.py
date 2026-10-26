@@ -11,7 +11,7 @@ import random
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["Core.lua", "Protocol.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Mirror.lua", "Quests.lua", "NPC.lua", "Agent.lua", "UI.lua"]
+FILES = ["Core.lua", "Protocol.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Mirror.lua", "Quests.lua", "NPC.lua", "Agent.lua", "UI.lua", "Views.lua"]
 BOOT = r'''
 clock=10; realm="Private Test"; grouped=true; alive=true; combat=false
 getglobal=function(n) return _G[n] end
@@ -48,6 +48,15 @@ function Frame:GetBottom() return self.mockBottom end
 function Frame:SetScale(value) self.scale=value end
 function Frame:GetFrameLevel() return self.level end
 function Frame:SetFrameLevel(n) self.level=n end
+function Frame:SetParent(parent)
+ if self.parent==parent then return end
+ if self.parent then for i,child in ipairs(self.parent.children) do if child==self then table.remove(self.parent.children,i);break end end end
+ self.parent=parent;table.insert(parent.children,self)
+end
+function Frame:SetTexCoord(...) self.texcoord={...} end
+function Frame:SetVerticalScroll(value) self.verticalScroll=value end
+function Frame:GetVerticalScroll() return self.verticalScroll or 0 end
+function Frame:SetScrollChild(child) self.scrollChild=child end
 function Frame:GetFrameStrata() return self.strata or (self.parent and self.parent:GetFrameStrata()) or "MEDIUM" end
 function Frame:SetFrameStrata(value) self.strata=value end
 function Frame:EnableMouse(value) self.mouseEnabled=value end
@@ -196,7 +205,7 @@ def endpoint(name, peer, ui=False):
     lua.globals().peerName = peer
     lua.globals().ownGUID = "0x0000000000000001" if name == "Main" else "0x0000000000000002"
     lua.globals().peerGUID = "0x0000000000000002" if name == "Main" else "0x0000000000000001"
-    for name in FILES if ui else FILES[:-1]:
+    for name in FILES if ui else [f for f in FILES if f not in {"UI.lua", "Views.lua"}]:
         source = (ROOT / name).read_text(encoding="utf-8")
         lua.compile(source)
         lua.execute(source)
@@ -449,10 +458,10 @@ print("PASS: emergency stop overtakes queued commands and invalidates older dela
 
 p = Pair(ui=True)
 p.main.execute('zBox.UI.frame:Show();zBox.UI:Refresh();assert(zBox.UI.cells[1].row)')
-p.main.execute('assert(zBox.UI.browser:GetHeight()==275);assert(zBox.UI.frame:GetWidth()==496 and zBox.UI.frame:GetHeight()==110 and zBox.UI.frame.scale==.85)')
+p.main.execute('assert(zBox.UI.browser:GetHeight()==193);assert(zBox.UI.frame:GetWidth()==496 and zBox.UI.frame:GetHeight()==110 and zBox.UI.frame.scale==.85)')
 p.main.execute('zBox:Request("bags",1)')
 p.advance(5)
-p.main.execute('zBox.UI:Refresh();zBox.UI:Click(zBox.UI.cells[1],"LeftButton");assert(zBox.bagSelection)')
+p.main.execute('zBox.UI:Refresh();zBox.UI:Click(zBox.UI.bagWindows[1].cells[1],"LeftButton");assert(zBox.bagSelection)')
 p.main.execute('zBox:Request("gear",1)')
 p.advance(5)
 p.main.execute('zBox.UI:Refresh();assert(zBox.bagSelection);zBox.UI:Click(zBox.UI.cells[17],"LeftButton")')

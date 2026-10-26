@@ -227,6 +227,7 @@ function U:CreateBrowser()
   self.empty = label(self.content, "", 11, 4, -10, 464)
   self.selectionText = label(f, "", 9, 12, -379, 472)
   self.selectionText:SetHeight(18)
+  self:CreateCharacterViews()
   f:Hide()
 end
 
@@ -359,6 +360,8 @@ function U:Click(cell, mouse)
     return
   end
   if cell.section == "quests" then
+    self.questSelected = row[2]
+    self:Refresh()
     self:Tooltip(cell)
   elseif cell.section == "npc" then
     if mouse ~= "LeftButton" then return end
@@ -384,7 +387,7 @@ function U:Click(cell, mouse)
       self:Run("USEITEM", { row[1], row[2], row[8] })
     else
       B.bagSelection = { bag = row[1], slot = row[2], key = row[8], link = row[7] }
-      B.notice = "Selected item. Open Equipment and click its destination slot."
+      B.notice = "Selected item. Open Gear and click its destination slot."
       self:Refresh()
     end
   elseif cell.section == "gear" then
@@ -438,6 +441,7 @@ function U:Refresh()
       bodyHeight = math.max(48, count * (B.view == "quests" and 65 or 48))
     end
   end
+  bodyHeight = self:CharacterViewHeight(view, bodyHeight)
   self.content:SetHeight(bodyHeight)
   self.browser:SetHeight(99 + bodyHeight + 32)
   self:PlacePanels()
@@ -464,25 +468,30 @@ function U:Refresh()
     local b = self.tabs[i]
     b.caption:SetTextColor(b.section == B.view and 0.3 or 0.9, 0.95, b.section == B.view and 0.8 or 0.9)
   end
-  for i = 1, table.getn(self.cells) do self.cells[i]:Hide(); self.cells[i].row = nil end
+  self:ResetCharacterViews()
   self.empty:Hide()
   if not view or view.section ~= B.view or view.page ~= B.page then
     self.viewTitle:SetText("Account 2 - " .. B.view)
     self.pageLabel:SetText(tostring(B.page))
     self.empty:SetText(B.connected and "Loading from account 2..." or "Pair both characters and put them in the same party.")
     self.empty:Show()
+    if B.view == "bags" then self:RenderBags({ page = B.page }); self.empty:Hide() end
   else
     self.viewTitle:SetText(view.title)
     self.pageLabel:SetText((view.displayPage or view.page) .. " / " .. view.maximum)
-    for i = 1, math.min(48, table.getn(view.rows)) do self:RenderCell(self.cells[i], view.rows[i], i, view.section) end
-    if table.getn(view.rows) == 0 then self.empty:SetText("This page is empty."); self.empty:Show() end
+    if not self:RenderCharacterView(view) then
+      for i = 1, math.min(48, table.getn(view.rows)) do self:RenderCell(self.cells[i], view.rows[i], i, view.section) end
+    end
+    if table.getn(view.rows) == 0 and B.view ~= "quests" and B.view ~= "npc" and B.view ~= "bags" then
+      self.empty:SetText("This page is empty."); self.empty:Show()
+    end
   end
   local help = { actions = "Click to cast. Right-click for self. Drag a skill onto your own action bars.",
     spells = "Click to cast. Drag a spell onto your bars. Passive spells cannot be used.",
     bags = "Left click selects an item for equipping. Right click uses it on account 2.",
     gear = "Select an item in Bags, then click its slot. Shift-click gear to unequip.",
     talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites.",
-    quests = "Alt progress and main progress. Hover for objectives. Main only shows missing questlines.",
+    quests = "Select a quest to read objectives and compare progress. Main only shows missing questlines.",
     npc = "Target an NPC and click Talk. Account 2 must be nearby. Purchases require a second click." }
   self.help:SetText(help[B.view])
   if B.view == "npc" and self.npcConfirm and GetTime() < (self.npcConfirmUntil or 0) then
@@ -676,6 +685,7 @@ function U:Tick(now)
   self.lastTick = now
   self:PlacePanels()
   if self.dirty then self:Refresh() end
+  self:CharacterViewsTick(now)
   if self.noticeUntil and now > self.noticeUntil then self.toast:Hide() end
   local cds = B.cache.cooldowns
   if cds and cds.page == B.actionPage then

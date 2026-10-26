@@ -3,6 +3,7 @@
 This is a fixture preview, not an in-game screenshot. No game assets are copied.
 """
 import ast
+import re
 from pathlib import Path
 from lupa.lua51 import LuaRuntime
 from PIL import Image, ImageDraw, ImageFont
@@ -80,6 +81,8 @@ def rect(frame):
             ox, oy = anchor((0, 0, w, h), point[1]);x, y = ax-ox, ay-oy
         else:
             x, y, _, _ = rect(parent)
+        if parent.kind == "ScrollFrame":
+            y -= parent.verticalScroll or 0
         result = (x, y, w, h)
     rects[key] = result
     return result
@@ -93,7 +96,13 @@ def paint(frame):
     if frame.backdrop:
         draw.rounded_rectangle(box, radius=3*SCALE, fill=color(frame.background, (15, 23, 28)), outline=(44, 65, 71), width=SCALE)
     if frame.kind == "Texture":
-        if frame.color:
+        if frame.texture and "UI-QuestGreeting-TopLeft" in str(frame.texture) and (HERE / "build/quest-bg.blp").exists():
+            paper = Image.open(HERE / "build/quest-bg.blp").convert("RGB")
+            coord = frame.texcoord
+            if coord:
+                paper = paper.crop((coord[1]*paper.width, coord[3]*paper.height, coord[2]*paper.width, coord[4]*paper.height))
+            canvas.paste(paper.resize((max(1,box[2]-box[0]),max(1,box[3]-box[1]))),box[:2])
+        elif frame.color:
             draw.rectangle(box, fill=color(frame.color, (35, 48, 55)))
         elif frame.texture:
             row = frame.parent.row
@@ -104,18 +113,22 @@ def paint(frame):
                 draw.text((box[0]+6*SCALE, box[1]+6*SCALE), title, font=font(11), fill=(235,235,225))
             else:
                 draw.rectangle(box, fill=(25,34,40))
+    if frame.kind == "PlayerModel":
+        cx=(box[0]+box[2])/2;cy=box[1]+45*SCALE
+        draw.ellipse((cx-20*SCALE,cy,cx+20*SCALE,cy+40*SCALE),fill=(79,88,93))
+        draw.polygon([(cx-17*SCALE,cy+40*SCALE),(cx-43*SCALE,cy+140*SCALE),(cx+43*SCALE,cy+140*SCALE),(cx+17*SCALE,cy+40*SCALE)],fill=(63,72,78))
+        draw.text((cx-58*SCALE,cy+150*SCALE),"Character model in game",font=font(10),fill=(160,165,160))
     if frame.kind == "FontString" and frame.text:
-        text = str(frame.text)
+        text = re.sub(r"\|c[0-9a-fA-F]{8}|\|r", "", str(frame.text))
         lines = []
-        words = text.split()
-        line = ""
-        for word in words:
-            next_line = (line + " " + word).strip()
-            if line and draw.textlength(next_line, font=font(frame.fontSize or 10)) > w*SCALE:
-                lines.append(line);line=word
-            else:
-                line=next_line
-        if line:
+        for paragraph in text.split("\n"):
+            line = ""
+            for word in paragraph.split():
+                next_line = (line + " " + word).strip()
+                if line and draw.textlength(next_line, font=font(frame.fontSize or 10)) > w*SCALE:
+                    lines.append(line);line=word
+                else:
+                    line=next_line
             lines.append(line)
         for i, line in enumerate(lines[:max(1, int(h/(frame.fontSize or 10)))]):
             tx = box[0]
@@ -125,8 +138,11 @@ def paint(frame):
     children = list(frame.children.values())
     layers = {"BACKGROUND": 0, "ARTWORK": 1, "OVERLAY": 3}
     children.sort(key=lambda child: layers.get(child.layer, 2))
+    before = canvas.copy() if frame.kind == "ScrollFrame" else None
     for child in children:
         paint(child)
+    if before is not None:
+        inside=canvas.crop(box);canvas.paste(before);canvas.paste(inside,box[:2])
 
 
 out = HERE / "build"
@@ -169,3 +185,35 @@ pair.alt.execute('zBox:NPCEvent("MERCHANT_SHOW")')
 lua.execute('zBox:Request("npc",1)');pair.advance(4)
 lua.execute('zBox.db.mirrorMovement=true;zBox.mirrorPaused=false;zBox.UI:Refresh();zBox.UI.toast:Hide()')
 full_preview("npc-mirror-preview.png")
+
+# A contact sheet for all character views. Models/icons are fixture placeholders;
+# the parchment is sampled from the installed client only when available locally.
+lua.execute('zBox.UI.frame:ClearAllPoints();zBox.UI.frame:SetPoint("BOTTOM",UIParent,"BOTTOM",0,110);zBox.UI.frame.mockTop=220;zBox.UI.frame.mockBottom=110')
+pair.alt.execute(r'''
+GetGossipText=function() return "Welcome, traveler.\n\nThe forest grows restless. We need someone brave enough to find out why. Will you lend us your aid?" end
+GetBagName=function(bag) return bag==0 and "Backpack" or "Runecloth Bag" end
+GetContainerNumSlots=function() return 16 end
+GetNumSpellTabs=function() return 1 end
+GetSpellTabInfo=function() return "Frost","Icon",0,24 end
+GetSpellName=function(i) local names={"Fireball","Frostbolt","Frost Nova","Frost Armor","Blink","Counterspell","Arcane Missiles","Cone of Cold","Polymorph","Evocation","Conjure Food","Conjure Water"};return names[(i-1)%12+1],"Rank "..math.ceil(i/12) end
+GetNumTalents=function() return 28 end
+GetTalentInfo=function(tab,i) return "Talent "..i,"TalentIcon",math.ceil(i/4),(i-1)%4+1,(i%3==0 and 5 or 0),5,nil,true end
+''')
+previews=[]
+for section in ["gear","bags","spells","talents","quests","npc"]:
+    if section=="npc": pair.alt.execute('zBox:NPCEvent("GOSSIP_SHOW")')
+    lua.execute(f'zBox:Request("{section}",1)');pair.advance(6)
+    if section=="bags":
+        lua.execute('zBox.UI:ToggleBag(2)');pair.advance(4)
+    lua.execute('zBox.UI.browser:Show();zBox.UI:Refresh();zBox.UI.toast:Hide()')
+    rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+    bx,by,bw,bh=rect(lua.globals().zBox.UI.browser)
+    preview=crop(canvas,bx,by,bw,bh).resize((504,round(bh+16)),Image.Resampling.LANCZOS)
+    preview.save(out/f'{section}-character-preview.png')
+    previews.append((section,preview))
+sheet=Image.new('RGB',(3*524,2*560),'#182024')
+for i,(section,preview) in enumerate(previews):
+    sheet.paste(preview,(10+(i%3)*524,32+(i//3)*560))
+    ImageDraw.Draw(sheet).text((18+(i%3)*524,8+(i//3)*560),section.title(),font=ImageFont.truetype(str(FONT),16),fill='#d6ccac')
+sheet.save(out/'character-views-preview.png')
+print('Saved character-view contact sheet:',out/'character-views-preview.png')

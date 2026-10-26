@@ -35,7 +35,9 @@ function B:NPCRows()
   end
   if kind == "gossip" then
     local options = { GetGossipOptions() }
-    for i = 1, table.getn(options), 2 do add("gossip", (i+1)/2, options[i], "Talk") end
+    for i = 1, table.getn(options), 2 do
+      add("gossip", (i+1)/2, options[i], "Talk", "Interface\\GossipFrame\\" .. tostring(options[i+1] or "gossip") .. "GossipIcon")
+    end
     -- The stock 1.12 client returns title/level pairs for both quest lists.
     local available, active = { GetGossipAvailableQuests() }, { GetGossipActiveQuests() }
     for i = 1, table.getn(available), 2 do add("gossipAvailable", (i+1)/2, available[i], "Available quest - level " .. tostring(available[i+1])) end
@@ -78,6 +80,21 @@ function B:NPCView(page)
   local all, rows = self:NPCRows(), {}
   for i = (page-1)*6+1, math.min(page*6, table.getn(all)) do table.insert(rows, self:Encode(all[i])) end
   return rows, self.npcKind and ((self.npcName or "NPC") .. " - " .. self.npcKind) or "Target an NPC, then click Talk", math.max(1, math.ceil(table.getn(all)/6))
+end
+
+function B:NPCPresentation()
+  local kind, title, dialogue, objectives = self.npcKind or "", "", "", ""
+  if kind == "gossip" then dialogue = GetGossipText and GetGossipText() or ""
+  elseif kind == "greeting" then dialogue = GetGreetingText and GetGreetingText() or ""
+  elseif kind == "detail" then
+    title, dialogue = GetTitleText(), GetQuestText() or ""
+    objectives = GetObjectiveText and GetObjectiveText() or ""
+  elseif kind == "progress" then title, dialogue = GetTitleText(), GetProgressText() or ""
+  elseif kind == "reward" then title, dialogue = GetTitleText(), GetRewardText and GetRewardText() or ""
+  end
+  -- Keep the NPC's actual text separate from action captions and fingerprints.
+  -- This fits the transport budget alongside the six visible choices.
+  return { kind, self.npcName or "NPC", title or "", string.sub(dialogue, 1, 6000), string.sub(objectives, 1, 2000) }
 end
 
 function B:TalkToNPC(guid)

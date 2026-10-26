@@ -5,12 +5,12 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.3.2 | Native bridge 0.1.5 | Windows x86**
+**Addon 0.4.0 | Native bridge 0.1.5 | Windows x86**
 
-Update the bridge DLL and fully restart both clients. This release observes
-completed native jumps without replacing or post-hooking Lua's protected Jump
-function. In Mirror mode, hostile casts face their enemy before casting and
-keep facing that enemy until the actual cast or channel ends.
+Updating from 0.3.2: `/reload` on both characters. The bridge is unchanged.
+Character views now use a paper doll, movable bag windows, a two-page spellbook,
+a talent tree, a quest list with a detail pane, and scrolling NPC dialogue.
+Upgrading from an older bridge still requires the DLL update and full restart.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -158,10 +158,20 @@ realm across reloads. Dragging a skill never casts it.
 
 ### Bags, gear and talents
 
+**Bags** opens each bag as a separate four-column window. Use its bag button to
+open/close it; drag the window background to move it. Positions are saved per
+character. Open bags refresh in turn. Item borders show quality and selection.
+
 In **Bags**, left-click an item, open **Gear**, and click its destination slot.
 Right-click a bag item to use it. Shift-click equipped gear to unequip into an
 empty backpack slot. Equipment changes require leaving combat. Binding dialogs
 may still need confirmation in account 2's window.
+
+**Gear** places equipment around a character model, with weapons below it. The
+preview uses the grouped character visible to account 1; bring account 2 into
+view if it is unavailable. **Spells** uses two book columns and retains spell
+dragging. **Talents** places each talent at its real tier and column over the
+class tree background, with rank counters on its icon.
 
 In **Talents**, use the page arrows to choose a tree. Each click requests one
 rank. Wait for the updated rank before spending again. Normal prerequisites,
@@ -170,7 +180,8 @@ points and server rules apply.
 ### Quests and NPCs
 
 **More > Quests** shows account 2's quests and objectives with account 1's progress
-alongside them. Hover for full objective text. **Main only** lists questlines
+alongside them. Select a quest on the left to read its objectives and comparison
+on the right; long details scroll. **Main only** lists questlines
 account 2 does not have; **Alt quests** returns to the remote log. Collapsed
 quest headers and the selected quest are restored after reading the log.
 
@@ -178,6 +189,9 @@ For **More > NPC**, target a living friendly NPC on account 1, move account 2
 within six yards, then click **Talk**. Gossip choices, available/current quests,
 quest acceptance, completion and reward choices appear in the panel. Account 2
 must have the NPC loaded and remain within its normal interaction range.
+The parchment shows the NPC's actual gossip, greeting, quest, progress or reward
+text, followed by the available choices. Use the mouse wheel or arrows to scroll
+long conversations. Vendor and trainer entries keep their prices and confirmation.
 
 Vendor offers show the price and number of items. Each purchase buys **one
 offer**, including its normal bundle size. Trainer services show cost and
@@ -245,6 +259,7 @@ workload. The scripts locate it with `vswhere`.
 python -m pip install -r tests\requirements.txt
 python tests\test_hotfix.py
 python tests\test_cast_facing.py
+python tests\test_character_views.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1

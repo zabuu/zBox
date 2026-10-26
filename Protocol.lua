@@ -149,6 +149,12 @@ function B:Message(kind, fields, id, now)
   elseif kind == "VIEW" and self.db.role == "agent" and self.connected then
     self.lastReceive = now
     self:SetView(fields[1], fields[2])
+  elseif kind == "BAG" and self.db.role == "agent" and self.connected then
+    local page = self.Integer(fields[1], 1, 5)
+    if page and now - (self.lastBagRequestAt or -10) >= 0.4 then
+      self.lastBagRequestAt = now
+      self:SendView({ section = "bags", page = page })
+    end
   elseif kind == "BAR" and self.db.role == "agent" and self.connected then
     local page = tonumber(fields[1])
     if page and page >= 1 and page <= 10 and page == math.floor(page) then

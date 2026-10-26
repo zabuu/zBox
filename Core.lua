@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.3.2", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.4.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -144,6 +144,7 @@ function B:Disconnect(reason)
   self.lastMirrorJump = nil
   if self.UI then
     self.UI.held, self.UI.hovered = nil, nil
+    self.UI.bagAwaiting, self.UI.questSelected = nil, nil
     self.UI:CancelMove()
     self.UI.dirty = true
     if self.UI.frame and self.UI.frame:IsShown() then self.UI:Refresh() end

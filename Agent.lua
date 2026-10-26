@@ -89,7 +89,7 @@ end
 function B:SendView(override)
   local view = override or self.activeView
   if not view then return end
-  local section, page, rows, title, maximum = view.section, view.page, {}, "", 1
+  local section, page, rows, title, maximum, presentation = view.section, view.page, {}, "", 1, {}
   if section == "actions" then
     maximum, title = 10, "Account 2 action bar - page " .. page
     for slot = (page - 1) * 12 + 1, page * 12 do
@@ -117,6 +117,7 @@ function B:SendView(override)
   elseif section == "bags" then
     local bag, size = page - 1, GetContainerNumSlots(page - 1) or 0
     maximum, title = 5, bag == 0 and "Account 2 backpack" or ("Account 2 bag " .. bag)
+    presentation = { (GetBagName and GetBagName(bag)) or (bag == 0 and "Backpack" or ("Bag " .. bag)), size }
     for slot = 1, size do
       local icon, count, locked, quality = GetContainerItemInfo(bag, slot)
       local link = GetContainerItemLink(bag, slot)
@@ -132,7 +133,8 @@ function B:SendView(override)
     end
   elseif section == "talents" then
     maximum = GetNumTalentTabs() or 3
-    local name, _, spent = GetTalentTabInfo(page)
+    local name, _, spent, background = GetTalentTabInfo(page)
+    presentation = { background or "" }
     local points = UnitCharacterPoints and UnitCharacterPoints("player") or 0
     title = (name or "Talents") .. " - " .. (spent or 0) .. " spent, " .. (points or 0) .. " available"
     for index = 1, GetNumTalents(page) do
@@ -144,9 +146,10 @@ function B:SendView(override)
     rows, title, maximum = self:QuestView(page)
   elseif section == "npc" then
     rows, title, maximum = self:NPCView(page)
+    presentation = self:NPCPresentation()
   end
   self.snapshotID = (self.snapshotID or 0) + 1
-  self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n") }, false)
+  self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n"), self:Encode(presentation) }, false)
   if section == "actions" then self.barDirty = false end
 end
 
@@ -155,14 +158,19 @@ function B:AcceptState(fields)
     if table.getn(fields) ~= 14 then return end
     self.cache.status = fields
   elseif fields[1] == "snapshot" then
-    if table.getn(fields) ~= 7 or not integer(fields[4], 1, 2147483647) or
+    if (table.getn(fields) ~= 7 and table.getn(fields) ~= 8) or not integer(fields[4], 1, 2147483647) or
        not integer(fields[6], 1, 40) then return end
     local forView = fields[2] == self.view and tonumber(fields[3]) == self.page
     local forBar = fields[2] == "actions" and tonumber(fields[3]) == self.actionPage
-    if not forView and not forBar then return end
+    local forBag = fields[2] == "bags" and self.view == "bags" and integer(fields[3], 1, 5)
+    if forBag then
+      local previous = self.cache.bags and self.cache.bags[forBag]
+      if previous and tonumber(fields[4]) <= previous.id then forBag = nil end
+    end
+    if not forView and not forBar and not forBag then return end
     if forView and tonumber(fields[4]) <= (self.lastSnapshotID or 0) then forView = false end
     if forBar and tonumber(fields[4]) <= (self.lastBarSnapshotID or 0) then forBar = false end
-    if not forView and not forBar then return end
+    if not forView and not forBar and not forBag then return end
     local rows = {}
     if fields[7] ~= "" then
       local encoded = self.Split(fields[7], "\n")
@@ -178,7 +186,11 @@ function B:AcceptState(fields)
       end
     end
     local snapshot = { section = fields[2], page = tonumber(fields[3]), title = fields[5],
-      maximum = tonumber(fields[6]), rows = rows }
+      maximum = tonumber(fields[6]), rows = rows, id = tonumber(fields[4]), meta = fields[8] and self:Decode(fields[8]) or {} }
+    if forBag then
+      self.cache.bags = self.cache.bags or {}
+      self.cache.bags[forBag] = snapshot
+    end
     if forView then self.lastSnapshotID, self.cache.view = tonumber(fields[4]), snapshot end
     if forBar then self.lastBarSnapshotID, self.cache.bar = tonumber(fields[4]), snapshot end
     self.selection = nil
