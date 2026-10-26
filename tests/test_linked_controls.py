@@ -48,6 +48,7 @@ QuestFrameDetailPanel=CreateFrame("Frame",nil,UIParent)
 LazyPig_OnEvent=function(name)
  log("LP-event",name)
  if name=="GOSSIP_SHOW" and LPCONFIG.GOSSIP then SelectGossipOption(1) end
+ if name=="MERCHANT_SHOW" then LazyPig_GreySell();LazyPig_Repair() end
 end
 LazyPig_ReplyQuest=function(name) log("LP-reply",name);AcceptQuest() end
 LazyPig_RecordQuest=function(name) log("LP-record",name) end
@@ -61,8 +62,10 @@ LazyPig_OnUpdate=function(elapsed)
 end
 nativeAccept=AcceptQuest;nativeGossip=SelectGossipOption;nativeJump=Jump
 originalLPEvent=LazyPig_OnEvent
+originalLPSell=LazyPig_GreySell;originalLPRepair=LazyPig_Repair
 zBox:InstallNPCGuards()
 assert(nativeAccept==AcceptQuest and nativeGossip==SelectGossipOption and nativeJump==Jump)
+assert(LazyPig_GreySell==originalLPSell and LazyPig_Repair==originalLPRepair)
 if zBox.db.role=="control" then assert(LazyPig_OnEvent==originalLPEvent) end
 '''
 p = Pair()
@@ -73,6 +76,7 @@ p.alt.execute('''
 LazyPig_OnEvent("GOSSIP_SHOW");LazyPig_OnEvent("QUEST_GREETING");LazyPig_OnEvent("QUEST_COMPLETE")
 LazyPig_ReplyQuest("QUEST_PROGRESS");LazyPig_RecordQuest("A quest");LazyPig_FixQuest("A quest")
 LazyPig_GreySell();LazyPig_Repair()
+LazyPig_OnEvent("MERCHANT_SHOW")
 altHeld=true;LazyPig_OnUpdate(.1)
 assert(LPCONFIG.GOSSIP and LPCONFIG.AUTOSELL and LPCONFIG.AUTOREPAIR and QuestHaste==nil)
 assert(string.find(zBox:NPCGuardStatus(),"paused"))
@@ -82,10 +86,11 @@ LazyPig_OnEvent("CHAT_MSG_SYSTEM")
 ''')
 assert call_count(p.alt, 'SelectGossipOption') == 0
 assert call_count(p.alt, 'AcceptQuest') == 0
-for name in ('LP-reply', 'LP-record', 'LP-fix', 'LP-sell', 'LP-repair'):
+for name in ('LP-reply', 'LP-record', 'LP-fix'):
     assert call_count(p.alt, name) == 0, name
 assert call_count(p.alt, 'LP-update') == 1
-assert call_count(p.alt, 'LP-event') == 1
+assert call_count(p.alt, 'LP-event') == 2
+assert call_count(p.alt, 'LP-sell') == 2 and call_count(p.alt, 'LP-repair') == 2
 # Controller automation and explicit remote NPC choices remain available.
 p.main.execute('LazyPig_OnEvent("GOSSIP_SHOW");altHeld=true;LazyPig_OnUpdate(.1)')
 assert call_count(p.main, 'SelectGossipOption') == 1
@@ -110,5 +115,5 @@ assert(nativeAccept==AcceptQuest and nativeGossip==SelectGossipOption and native
 assert call_count(p.alt, 'LP-new') == 1
 assert call_count(p.alt, 'SelectGossipOption') == 2
 assert call_count(p.alt, 'AcceptQuest') == 1
-assert call_count(p.alt, 'LP-sell') == 1 and call_count(p.alt, 'LP-repair') == 1
-print('PASS: linked minimize/restore survives close/Escape; right-click unequips; LazyPig auto-gossip/quests/spending pause only on the linked agent without changing settings or protected APIs, and resume on unlink')
+assert call_count(p.alt, 'LP-sell') == 3 and call_count(p.alt, 'LP-repair') == 3
+print('PASS: linked minimize/restore survives close/Escape; right-click unequips; LazyPig dialogue pauses only on the linked agent while merchant selling/repair remain active, without changing settings or protected APIs')

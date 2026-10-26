@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.4.1 | Native bridge 0.1.5 | Windows x86**
+**Addon 0.4.2 | Native bridge 0.1.5 | Windows x86**
 
 Updating from 0.3.2 or later: `/reload` on both characters. The bridge is unchanged.
 Character views now use a paper doll, movable bag windows, a two-page spellbook,
@@ -197,8 +197,8 @@ The parchment shows the NPC's actual gossip, greeting, quest, progress or reward
 text, followed by the available choices. Use the mouse wheel or arrows to scroll
 long conversations. Vendor and trainer entries keep their prices and confirmation.
 
-On linked account 2, zBox pauses **_LazyPig** auto-gossip, quest replay/acceptance,
-automatic junk selling and repair. Account 1 keeps its normal behavior. These
+On linked account 2, zBox pauses **_LazyPig** auto-gossip and quest replay/acceptance.
+Automatic junk selling and repair remain enabled. Account 1 keeps its normal behavior. These
 guards act on the addon's own routines and leave protected game APIs and saved
 preferences unchanged; normal behavior returns when the link ends. Diagnostics
 reports the adapter status. Other automation addons need their own integration.

@@ -5,8 +5,7 @@ local globals = _G or getfenv(0)
 local guardedEvents = { GOSSIP_SHOW = true, QUEST_GREETING = true, QUEST_DETAIL = true,
   QUEST_PROGRESS = true, QUEST_COMPLETE = true }
 local entries = { LazyPig_OnEvent = "event", LazyPig_OnUpdate = "update",
-  LazyPig_ReplyQuest = "skip", LazyPig_RecordQuest = "skip", LazyPig_FixQuest = "skip",
-  LazyPig_GreySell = "skip", LazyPig_Repair = "skip" }
+  LazyPig_ReplyQuest = "skip", LazyPig_RecordQuest = "skip", LazyPig_FixQuest = "skip" }
 local installed = {}
 
 function B:IsLinkedAgent()
@@ -54,6 +53,6 @@ end
 
 function B:NPCGuardStatus()
   if not self:IsLinkedAgent() then return "normal" end
-  if next(installed) then return "_LazyPig paused while linked" end
+  if next(installed) then return "_LazyPig dialogue paused while linked" end
   return "no supported auto-NPC addon detected"
 end
