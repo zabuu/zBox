@@ -42,7 +42,7 @@ function B:SendStatus()
   self:Send("STATE", { "status", UnitName("player"), UnitLevel("player"), class or className or "",
     UnitHealth("player"), UnitHealthMax("player"), UnitMana("player"), UnitManaMax("player"),
     UnitName("target") or "No target", flag(UnitAffectingCombat("player")), flag(UnitIsDeadOrGhost("player")),
-    points or 0, self.destination and "Moving to point" or (self.following and "Following" or "Idle"),
+    points or 0, self.petState and (self.petState.guid and "Pet attack" or (self.petState.mode == "assist" and "Pet assist" or "Following")) or (self.destination and "Moving to point" or (self.following and "Following" or "Idle")),
     self:GetBridgeInfo().label }, true)
   if self.actionPage then
     local rows, first = {}, (self.actionPage - 1) * 12 + 1
@@ -351,6 +351,8 @@ function B:Execute(fields)
     local ok, detail = self:Invoke("FollowUnit", unit)
     self.following = ok
     return ok, detail or "Follow requested"
+  elseif command == "PET" then
+    return self:ReceivePet(fields[2],fields[3],fields[4])
   elseif command == "TALK" then
     return self:TalkToNPC(fields[2])
   elseif command == "NPC" then

@@ -1,6 +1,7 @@
 [CmdletBinding()]
-param([string]$OutputDirectory = (Join-Path $PSScriptRoot 'dist'))
+param([string]$OutputDirectory)
 $ErrorActionPreference = 'Stop'
+if (!$OutputDirectory) { $OutputDirectory = Join-Path $PSScriptRoot 'dist' }
 $taskVersion = ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'zBox.toc') | Where-Object { $_ -match '^## Version:' }) -replace '^## Version:\s*','').Trim()
 if ($taskVersion -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid addon version in zBox.toc.' }
 $taskFiles = @(& git -C $PSScriptRoot ls-files)

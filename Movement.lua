@@ -14,7 +14,9 @@ function B:SetAxis(axis, enabled)
   return ok, reason
 end
 
-function B:StopMovement(preserveCast, force)
+function B:StopMovement(preserveCast, force, preservePet)
+  local nativeMove = self.destination and self.destination.native
+  if not preserveCast and not preservePet and self.CancelPet then self:CancelPet() end
   if not preserveCast then
     self.pendingCast, self.resumeFollow, self.castingUntil, self.followQuietAt = nil, nil, nil, nil
     self.castActive, self.castEventTimeout, self.castFacingGUID, self.stopForCast = nil, nil, nil, nil
@@ -27,7 +29,7 @@ function B:StopMovement(preserveCast, force)
     if force or self.axes[axis] then self:Invoke(functions[2]) end
     self.axes[axis] = false
   end
-  if self.following or force then
+  if self.following or force or nativeMove then
     -- 1.12 rejects FollowUnit("player"). Clear the actual follow generator.
     if self:GetBridgeInfo().npc then
       local ok, result, reason = pcall(zBoxNative, "StopFollow")
@@ -50,7 +52,7 @@ function B:Position(unit)
   if ok and type(x) == "number" and type(y) == "number" and type(z) == "number" then return x, y, z end
 end
 
-function B:BeginMove(x, y, z)
+function B:BeginMove(x, y, z, owner)
   x, y, z = tonumber(x), tonumber(y), tonumber(z)
   if not x or not y or not z or x ~= x or y ~= y or z ~= z or
      math.abs(x) > 100000 or math.abs(y) > 100000 or math.abs(z) > 100000 then
@@ -60,9 +62,15 @@ function B:BeginMove(x, y, z)
   if not px or type(GetPlayerFacing) ~= "function" then return false, "Movement requires zAPI and GetPlayerFacing (ClassicAPI)" end
   local distance = math.sqrt((x - px)^2 + (y - py)^2)
   if distance > 120 or math.abs(z - pz) > 35 then return false, "Choose a point within 120 yards and 35 yards vertically" end
-  self:StopMovement()
+  local stopped, reason = self:StopMovement(nil, true, owner == "pet")
+  if not stopped then return false, reason end
   self.destination = { x = x, y = y, z = z, started = GetTime(), progressAt = GetTime(), distance = distance,
-    zone = GetRealZoneText and GetRealZoneText() or "" }
+    zone = GetRealZoneText and GetRealZoneText() or "", owner = owner }
+  self.lastMovementMethod = "Lua steering"
+  if self:GetBridgeInfo().nativeMove then
+    local ok, result = pcall(zBoxNative, "MoveTo", x, y, z)
+    if ok and result == 1 then self.destination.native = true; self.lastMovementMethod = "Native click-to-move" end
+  end
   return true, "Moving toward the chosen point"
 end
 
@@ -89,6 +97,7 @@ function B:MovementTick(now)
   if self.manualUntil and now > self.manualUntil then self:StopMovement() end
   local d = self.destination
   if not d then return end
+  if self:IsCastHeld(now) then self:StopMovement(true, true, d.owner == "pet"); return end
   if UnitIsDeadOrGhost("player") or now - d.started > 35 then self:StopMovement(); return end
   if d.zone ~= (GetRealZoneText and GetRealZoneText() or "") then self:StopMovement(); return end
   local px, py, pz = self:Position()
@@ -96,19 +105,44 @@ function B:MovementTick(now)
   if not px or not facing then self:StopMovement(); return end
   local dx, dy = d.x - px, d.y - py
   local distance = math.sqrt(dx * dx + dy * dy)
-  if distance < 0.8 then self:StopMovement(); return end
+  local speed = GetUnitSpeed and GetUnitSpeed("player") or 7
+  local arrival = math.max(0.35, type(speed) == "number" and speed*0.03 or 0.35)
+  if distance < arrival and math.abs(d.z-pz) < 2 then self:StopMovement(nil, true, d.owner == "pet"); return end
   if distance < d.distance - 0.3 then d.distance, d.progressAt = distance, now end
   if now - d.progressAt > 3.5 then
     self:StopMovement()
     self:Send("ERROR", { "Movement stopped: no progress. Choose a clear route around obstacles." }, true)
     return
   end
+  if d.native and now-d.progressAt > 1.2 then
+    local ok,result = pcall(zBoxNative,"StopFollow")
+    if not ok or result ~= 1 then self:StopMovement(); return end
+    d.native=nil; self.lastMovementMethod="Native CTM stalled / precise steering"
+  end
+  if d.native then
+    local ok, result, state = pcall(zBoxNative, "MoveState")
+    if not ok or result ~= 1 then self:StopMovement(); return end
+    if state == 4 then return end
+    -- Native CTM may settle short of its goal. Finish the last fraction using
+    -- precise facing and owned forward input, without changing client globals.
+    if state ~= 12 then self:StopMovement(); return end
+    d.native = nil
+    self.lastMovementMethod = "Native CTM / final correction"
+  end
   -- Native XYZ uses +X at facing zero, +Y at pi/2. Turning left increases facing.
   local delta = angleTo(dy, dx) - facing
   while delta > math.pi do delta = delta - math.pi * 2 end
   while delta < -math.pi do delta = delta + math.pi * 2 end
-  self:SetAxis("left", delta > 0.08)
-  self:SetAxis("right", delta < -0.08)
+  if self:GetBridgeInfo().mirror then
+    local heading = math.mod(angleTo(dy,dx)+math.pi*2, math.pi*2)
+    local ok, result = pcall(zBoxNative, "SetHeading", heading)
+    if not ok or result ~= 1 then self:StopMovement(); return end
+    self:SetAxis("left", false); self:SetAxis("right", false)
+    delta = 0
+  else
+    self:SetAxis("left", delta > 0.08)
+    self:SetAxis("right", delta < -0.08)
+  end
   local ok = self:SetAxis("forward", math.abs(delta) < 0.55)
   if not ok then self:StopMovement() end
 end
@@ -128,6 +162,17 @@ function B:PickTerrain()
   end
   cx, cy = cx / (width * scale), cy / (height * scale)
   if cx < 0 or cx > 1 or cy < 0 or cy > 1 then return nil, "Click inside the game window" end
+  -- zAPI refreshes the same native cursor raycast used by ground placement.
+  -- Accept only a result aligned with this cursor and its native projection.
+  local native, tick, sx, sy, nx, ny, wx, wy, wz, depth = pcall(zAPI, "cursorProjection")
+  local tolerance = math.max(0.002, 4/(width*scale), 4/(height*scale))
+  if native and type(tick)=="number" and tick==tick and tick>=0 and tick<=4294967295 and finite(sx) and finite(sy) and finite(nx) and finite(ny) and
+     finite(wx) and finite(wy) and finite(wz) and finite(depth) and depth > 0.05 and
+     math.abs(cx-nx) <= tolerance and math.abs(cy-ny) <= tolerance and
+     math.abs(sx-nx) <= tolerance and math.abs(sy-ny) <= tolerance then
+    self.lastPickMethod = "Native ground cursor"
+    return wx, wy, wz
+  end
   local ok, x, y, z, fx, fy, fz, rx, ry, rz, ux, uy, uz = pcall(zAPI, "camera")
   if not ok or not finite(x) or not finite(y) or not finite(z) or
      not finite(fx) or not finite(fy) or not finite(fz) or not finite(rx) or
@@ -160,6 +205,7 @@ function B:PickTerrain()
   if picked ~= 1 or not finite(wx) or not finite(wy) or not finite(wz) then
     return nil, "No ground hit within 249 yards of the camera; choose closer terrain"
   end
+  self.lastPickMethod = "Calibrated terrain ray"
   return wx, wy, wz
 end
 
@@ -167,14 +213,14 @@ function B:CaptureMove()
   if not self.connected then return false, "Connect the second character first" end
   local x, y, z = self:PickTerrain()
   if not x then self.lastPick = tostring(y); return false, y end
-  self.lastPick = string.format("Terrain %.1f, %.1f, %.1f", x, y, z)
+  self.lastPick = (self.lastPickMethod or "Terrain") .. string.format(" %.1f, %.1f, %.1f", x, y, z)
   local map = GetRealZoneText and GetRealZoneText() or ""
   return self:Command("MOVETO", { string.format("%.3f", x), string.format("%.3f", y), string.format("%.3f", z), map })
 end
 
 function B:Manual(axis, enabled)
   if not axes[axis] then return false, "Invalid movement axis" end
-  if enabled and (self.destination or self.following or self.pendingCast or self.resumeFollow) then self:StopMovement() end
+  if enabled and (self.destination or self.following or self.pendingCast or self.resumeFollow or self.petState) then self:StopMovement() end
   local ok, reason = self:SetAxis(axis, enabled)
   if not ok then return false, reason end
   self.manualUntil = GetTime() + 0.8
@@ -191,7 +237,7 @@ function B:ManualAxes(mask)
   for i = 1, 5, 2 do
     if enabled[i] and enabled[i + 1] then return false, "Opposite movement keys cannot be held together" end
   end
-  if self.destination or self.following or (originalMask ~= 0 and (self.pendingCast or self.resumeFollow)) then self:StopMovement() end
+  if self.destination or self.following or (originalMask ~= 0 and (self.pendingCast or self.resumeFollow or self.petState)) then self:StopMovement() end
   for i = 1, 6 do
     local ok, reason = self:SetAxis(directions[i], enabled[i])
     if not ok then self:StopMovement(); return false, reason end

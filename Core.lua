@@ -1,10 +1,11 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.4.2", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.5.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
   TurnLeftStart = true, TurnLeftStop = true, TurnRightStart = true, TurnRightStop = true,
   StrafeLeftStart = true, StrafeLeftStop = true, StrafeRightStart = true, StrafeRightStop = true }
+protectedInputs.StartAttack, protectedInputs.StopAttack, protectedInputs.CastSpellNoToggle = true, true, true
 
 function B:Print(text)
   if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcczBox:|r " .. tostring(text)) end
@@ -59,11 +60,12 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
       info.jumpEvents = contract >= 4
+      info.nativeMove = contract >= 5
     else
       info.label = "Bridge update required"
     end
@@ -77,6 +79,7 @@ function B:Diagnostics()
   local report = "Addon " .. self.version .. "; " .. info.label .. "; " ..
     (self.lastInvoke or "No input requested since reload") .. "; cast event=" .. (self.lastCastSignal or "none") ..
     "; pick=" .. (self.lastPick or "none") .. "; jump sequence=" .. tostring(self.lastMirrorJump or "none")
+  report = report .. "; movement=" .. (self.lastMovementMethod or "none") .. "; pet=" .. (self.petState and self.petState.mode or "off")
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
@@ -170,10 +173,10 @@ end
 function B:Command(command, fields)
   if not self.connected or self.db.role ~= "control" then return false, "Not connected" end
   fields = fields or {}
-  if command == "FOLLOW" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" then
+  if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" then
     self.mirrorPaused = true
   end
-  if command == "STOP" or command == "FOLLOW" or command == "MOVETO" or command == "ACTION" or command == "SPELL" or command == "TALK" or command == "NPC" then
+  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "ACTION" or command == "SPELL" or command == "TALK" or command == "NPC" then
     self.heldInputs, self.heldMask = {}, 0
     self.heldModifiers = {}
     if self.UI then self.UI.held = nil end
@@ -234,6 +237,18 @@ function B:Slash(message)
     if self.UI then self.UI:ArmMove() end
   elseif command == "keys" then
     if self.UI then self.UI:ShowKeys() end
+  elseif command == "pet" then
+    local ok,reason
+    if rest == "follow" or rest == "assist" or rest == "attack" then ok,reason=self:UseControl("pet" .. rest)
+    elseif rest == "" then ok,reason=self:SetMovementMode("pet")
+    else ok,reason=false,"Use /zbox pet follow, /zbox pet assist or /zbox pet attack" end
+    if not ok then self:Notify(reason) end
+  elseif command == "attack" or command == "assist" or command == "follow" then
+    local ok,reason
+    if command == "attack" then ok,reason=self:AttackCommand()
+    elseif command == "assist" then ok,reason=self:AssistCommand()
+    else ok,reason=self:FollowCommand() end
+    if not ok then self:Notify(reason) end
   elseif command == "mirror" then
     if rest == "off" then self:SetMirrorMode(false)
     elseif rest == "pause" then if self.connected then self:Command("STOP") end
@@ -254,6 +269,7 @@ function B:Slash(message)
     self:Print("/zbox diag reports input bridge versions and the last operation on both clients.")
     self:Print("/zbox scale 0.75 changes panel size; /zbox scale reset restores 85%.")
     self:Print("/zbox mirror enables movement/heading/jump mirroring; /zbox mirror pause stops it; /zbox mirror off selects Follow mode.")
+    self:Print("/zbox pet follow, /zbox pet assist and /zbox pet attack also work in macros. Drag the matching controls onto your bars.")
   else
     if self.UI then self.UI:Toggle() end
   end
@@ -345,4 +361,5 @@ BINDING_NAME_ZBOX_STRAFELEFT = "Account 2: hold to strafe left"
 BINDING_NAME_ZBOX_STRAFERIGHT = "Account 2: hold to strafe right"
 BINDING_NAME_ZBOX_FOLLOW = "Account 2: follow main"
 BINDING_NAME_ZBOX_ASSIST = "Account 2: assist main"
+BINDING_NAME_ZBOX_ATTACK = "Account 2: pet attack target"
 BINDING_NAME_ZBOX_JUMP = "Account 2: jump"

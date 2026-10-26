@@ -8,7 +8,8 @@
   <Binding name="ZBOX_RIGHT" runOnUp="true">zBox:HoldDirection("right", keystate == "down")</Binding>
   <Binding name="ZBOX_STRAFELEFT" runOnUp="true">zBox:HoldDirection("strafeleft", keystate == "down")</Binding>
   <Binding name="ZBOX_STRAFERIGHT" runOnUp="true">zBox:HoldDirection("straferight", keystate == "down")</Binding>
-  <Binding name="ZBOX_FOLLOW">zBox:Command("FOLLOW")</Binding>
-  <Binding name="ZBOX_ASSIST">zBox:Command("ASSIST")</Binding>
+  <Binding name="ZBOX_FOLLOW">zBox:Slash("follow")</Binding>
+  <Binding name="ZBOX_ASSIST">zBox:Slash("assist")</Binding>
+  <Binding name="ZBOX_ATTACK">zBox:Slash("attack")</Binding>
   <Binding name="ZBOX_JUMP">zBox:Command("JUMP")</Binding>
 </Bindings>

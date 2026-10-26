@@ -59,4 +59,14 @@ assert ('mov','dword ptr [0xc4d888], 0xc') in cancel
 assert ('mov','dword ptr [0xc4d980], ebx') in cancel
 assert ('ret','8') in cancel
 assert ('call','0x60fb60') in instructions(0x514640,160)
+ctm=instructions(0x611130,260)
+assert ('mov','esi, ecx') in ctm and ('mov','edi, dword ptr [ebp + 0x10]') in ctm
+assert ('mov','eax, dword ptr [ebp + 0x14]') in ctm and ('ret','0x10') in ctm
+assert ('mov','dword ptr [0xc4d888], edx') in ctm
+assert ('mov','dword ptr [0xc4d890], eax') in ctm
+# Ordinary ground click dispatches mode 4, zero GUID and zero float, just as
+# the narrow production helper does; no direct CTM-state writes are needed.
+ground=instructions(0x6102B0,70)
+assert ('push','4') in ground and ('call','0x611130') in ground
+assert ('mov','dword ptr [ebp - 8], eax') in ground and ('push','eax') in ground
 print('PASS: client image and GUID/NPC/heading/movement ABIs; native follow cancellation clears its GUID/state through the normal input-controller path')

@@ -70,6 +70,11 @@ function B:UseProxy(id)
   if proxy.realm ~= self:Realm() or self:Name(proxy.peer) ~= self:Name(self.db.peer) then
     self:Notify("This button belongs to a different paired character. Drag a new button from zBox."); return
   end
+  if proxy.command == "CONTROL" then
+    local ok, reason = self:UseControl(proxy.slot)
+    if not ok then self:Notify(reason) end
+    return
+  end
   if proxy.command ~= "ACTION" and proxy.command ~= "SPELL" then return end
   local ok, reason = self:Command(proxy.command, { proxy.slot, proxy.stamp, self:TargetDescriptor(IsAltKeyDown and IsAltKeyDown()) })
   if not ok then self:Notify(reason) end
@@ -85,30 +90,68 @@ function B:ProxyIcon(texture)
   return self.macroIcons[string.lower(texture)] or 1
 end
 
-function B:PickupRemote(section, row)
+local controlMacros = {
+  petfollow = { "Pet Follow", "Interface\\Icons\\Ability_Tracking" },
+  petassist = { "Pet Assist", "Interface\\Icons\\Ability_Hunter_Assist" },
+  petattack = { "Pet Attack", "Interface\\Icons\\Ability_GhoulFrenzy" },
+  follow = { "Follow", "Interface\\Icons\\Ability_Tracking" },
+  assist = { "Assist", "Interface\\Icons\\Ability_Hunter_Assist" },
+  move = { "Move", "Interface\\Icons\\Ability_Rogue_Sprint" },
+  stop = { "STOP", "Interface\\Icons\\Spell_Nature_TimeStop" },
+}
+
+function B:UseControl(kind)
+  if not controlMacros[kind] then return false, "Unknown zBox control" end
   if not self.connected or self.db.role ~= "control" then return false, "Connect the second character first" end
+  if string.sub(kind, 1, 3) == "pet" then
+    if self:MovementMode() ~= "pet" then
+      local ok, reason = self:SetMovementMode("pet")
+      if not ok then return false, reason end
+    end
+    return self:PetOrder(string.sub(kind, 4))
+  elseif kind == "follow" then return self:FollowCommand()
+  elseif kind == "assist" then return self:AssistCommand()
+  elseif kind == "stop" then return self:Command("STOP")
+  elseif kind == "move" then
+    if not self.UI then return false, "The movement picker is unavailable" end
+    self.UI:ArmMove(); return true
+  end
+end
+
+function B:PickupControl(kind)
+  local entry = controlMacros[kind]
+  if not entry then return false, "Unknown zBox control" end
+  return self:PickupProxy("CONTROL", kind, "", entry[2], entry[1])
+end
+
+function B:PickupRemote(section, row)
   if section ~= "actions" and section ~= "spells" then return false, "Drag an action or spell" end
   if not row or row[2] == "" or (section == "spells" and row[6] == "1") then return false, "Choose an active skill" end
+  return self:PickupProxy(section == "actions" and "ACTION" or "SPELL", row[1],
+    section == "actions" and row[4] or row[5], row[2], row[3])
+end
+
+function B:PickupProxy(command, slot, stamp, texture, label)
+  if not self.connected or self.db.role ~= "control" then return false, "Connect the second character first" end
   if not PickupMacro or not GetMacroInfo or not GetMacroIndexByName then return false, "The macro cursor API is unavailable" end
   if (CursorHasItem and CursorHasItem()) or (CursorHasSpell and CursorHasSpell()) or
      (CursorHasMoney and CursorHasMoney()) or (GetCursorInfo and GetCursorInfo()) then
-    return false, "Clear your cursor before dragging a remote skill"
+    return false, "Clear your cursor before dragging a zBox button"
   end
-  local command, stamp = section == "actions" and "ACTION" or "SPELL", section == "actions" and row[4] or row[5]
   self.db.proxies = self.db.proxies or {}
   local id, proxy
   for key, value in pairs(self.db.proxies) do
-    if value.peer == self.db.peer and value.realm == self:Realm() and value.command == command and value.slot == row[1] then
+    if value.peer == self.db.peer and value.realm == self:Realm() and value.command == command and value.slot == slot then
       id, proxy = key, value; break
     end
   end
   if not id then
     self.db.proxySerial = (self.db.proxySerial or 0) + 1
     id = tostring(self.db.proxySerial)
-    proxy = { peer = self.db.peer, realm = self:Realm(), command = command, slot = row[1] }
+    proxy = { peer = self.db.peer, realm = self:Realm(), command = command, slot = slot }
   end
   local body = '/script zBox:UseProxy("' .. id .. '")'
-  local name = "zB" .. id .. " " .. string.sub(row[3], 1, math.max(0, 12 - string.len(id)))
+  local name = "zB" .. id .. " " .. string.sub(label, 1, math.max(0, 12 - string.len(id)))
   -- Reuse only our exact macro body. Never overwrite a player's named macro.
   local index
   for i = 1, 36 do
@@ -119,19 +162,20 @@ function B:PickupRemote(section, row)
     if GetMacroIndexByName(name) ~= 0 then return false, "A macro already uses " .. name .. ". Rename it and try again." end
     local ok, result
     if C_Macro and type(C_Macro.CreateMacro) == "function" then
-      ok, result = pcall(C_Macro.CreateMacro, name, row[2], body, true)
+      ok, result = pcall(C_Macro.CreateMacro, name, texture, body, true)
     elseif CreateMacro then
       -- Vanilla's legacy API takes the per-character flag as argument FIVE.
-      ok, result = pcall(CreateMacro, name, self:ProxyIcon(row[2]), body, nil, true)
+      ok, result = pcall(CreateMacro, name, self:ProxyIcon(texture), body, nil, true)
     end
     if not ok or type(result) ~= "number" or result < 1 then
       return false, "No character macro slot available. Free a slot in /macro, then drag again."
     end
     index = result
   end
-  proxy.stamp, proxy.label, proxy.icon = stamp, row[3], row[2]
+  proxy.stamp, proxy.label, proxy.icon = stamp, label, texture
   self.db.proxies[id] = proxy
   local ok, reason = pcall(PickupMacro, index)
   if not ok then return false, tostring(reason) end
-  return true, "Drop the remote skill on one of your action bars. Alt-click its macro to target account 2."
+  return true, command == "CONTROL" and "Drop the zBox control on one of your action bars." or
+    "Drop the remote skill on one of your action bars. Alt-click its macro to target account 2."
 end

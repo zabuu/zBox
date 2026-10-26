@@ -8,6 +8,7 @@
 #include "MinHook.h"
 #include "ScopedInvoke.h"
 #include "MovementObserver.h"
+#include "NativeMove.h"
 
 namespace {
 uintptr_t base = 0;
@@ -79,7 +80,7 @@ int validate(void *L, const char *name) {
   const char *noArgs[] = { "MoveForwardStart", "MoveForwardStop", "MoveBackwardStart", "MoveBackwardStop",
     "TurnLeftStart", "TurnLeftStop", "TurnRightStart", "TurnRightStop", "StrafeLeftStart", "StrafeLeftStop",
     "StrafeRightStart", "StrafeRightStop", "Jump", "SpellStopCasting", "SpellStopTargeting", "AttackTarget", "ClearTarget",
-    "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer" };
+    "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer", "StartAttack", "StopAttack" };
   for (const char *allowed : noArgs) if (!std::strcmp(name, allowed)) return 0;
   if (!std::strcmp(name, "TargetUnit") || !std::strcmp(name, "FollowUnit") || !std::strcmp(name, "AssistUnit"))
     return unit(L, 2) ? 1 : -1;
@@ -88,6 +89,7 @@ int validate(void *L, const char *name) {
       (type(L, 4) == 0 || number(L, 4, 1, 1)) ? 3 : -1;
   if (!std::strcmp(name, "CastSpell"))
     return number(L, 2, 1, 960) && type(L, 3) == 4 && !std::strcmp(str(L, 3), "spell") ? 2 : -1;
+  if (!std::strcmp(name, "CastSpellNoToggle")) return number(L, 2, 75, 75) ? 1 : -1;
   if (!std::strcmp(name, "PickupContainerItem") || !std::strcmp(name, "UseContainerItem"))
     return number(L, 2, 0, 4) && number(L, 3, 1, 36) ? 2 : -1;
   if (!std::strcmp(name, "EquipCursorItem") || !std::strcmp(name, "PickupInventoryItem"))
@@ -159,6 +161,43 @@ bool readInputs(int &mask, float &heading) {
   } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+bool moveTo(const ZBoxPoint &point) {
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player) return false;
+    const float *position = reinterpret_cast<const float *>(player + 0x9B8);
+    const float dx = point.x-position[0], dy = point.y-position[1], dz = point.z-position[2];
+    if (!std::isfinite(dx) || !std::isfinite(dy) || !std::isfinite(dz) ||
+        dx*dx+dy*dy > 120*120 || std::fabs(dz) > 35) return false;
+    // CGUnit click-to-move: thiscall; mode, GUID*, XYZ*, float; ret 16.
+    return ZBoxSubmitMove(at<ZBoxMoveTo>(0x00611130), player, point);
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool combatGeometry(uint64_t guid, double *values) {
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player || !guid) return false;
+    const uintptr_t target = at<Lookup>(0x00464870)(guid);
+    if (!target || target == player) return false;
+    const uintptr_t fields = *reinterpret_cast<uintptr_t *>(target + 0x110);
+    const uintptr_t own = *reinterpret_cast<uintptr_t *>(player + 0x110);
+    const uintptr_t descriptor = *reinterpret_cast<uintptr_t *>(target + 8);
+    if (!fields || !own || !descriptor || (*reinterpret_cast<uint32_t *>(descriptor+8) & 8) == 0) return false;
+    const float a = *reinterpret_cast<float *>(fields+0x1F0), b = *reinterpret_cast<float *>(own+0x1F0);
+    if (!std::isfinite(a) || !std::isfinite(b) || a <= 0 || a > 30 || b <= 0 || b > 10) return false;
+    const float *targetPosition = reinterpret_cast<const float *>(target+0x9B8);
+    const float *playerPosition = reinterpret_cast<const float *>(player+0x9B8);
+    for (int i=0; i<3; ++i) { values[i] = targetPosition[i]; values[i+4] = playerPosition[i]; }
+    values[3] = *reinterpret_cast<float *>(target+0x9C4);
+    values[7] = (std::fmax)(1.5, (std::fmin)(15.0, a+b-0.75));
+    for (int i=0; i<8; ++i) if (!std::isfinite(values[i]) || std::fabs(values[i]) > 100000) return false;
+    if (values[3] < 0 || values[3] > 6.30) return false;
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
 bool setHeading(float heading) {
   using SetFacing = void(__thiscall *)(uintptr_t, float);
   using SendMovement = int(__thiscall *)(uintptr_t, uint32_t, uint32_t, float, uint32_t);
@@ -184,15 +223,15 @@ int response(void *L, bool ok, const char *detail) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.5");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.6");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.5");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 4 : 3);
+    response(L, true, "zBoxBridge 0.1.6");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 5 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.5; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.6; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name, "inputs")) {
@@ -210,6 +249,39 @@ int __fastcall bridge(void *L) {
     InterlockedExchange(&busy, 0);
     ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
     return response(L, result, result ? "Native follow cancelled" : "Could not cancel native follow");
+  }
+  if (!std::strcmp(name, "MoveTo")) {
+    float coordinates[3]{};
+    for (int i=0; i<3; ++i) {
+      if (type(L, i+2) != 3) return response(L, false, "Expected world XYZ");
+      const double value = at<ToNumber>(0x006F3620)(L, i+2);
+      if (!std::isfinite(value) || std::fabs(value)>100000) return response(L, false, "Invalid destination");
+      coordinates[i] = static_cast<float>(value);
+    }
+    const ZBoxPoint point{coordinates[0], coordinates[1], coordinates[2]};
+    if (InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Input busy");
+    const bool result = moveTo(point);
+    InterlockedExchange(&busy, 0);
+    ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
+    return response(L, result, result ? "Native movement requested" : "Native movement rejected");
+  }
+  if (!std::strcmp(name, "MoveState")) {
+    if (!*at<uint8_t *>(0x00B4B424)) return response(L, false, "Player is not in the world");
+    at<PushNumber>(0x006F3810)(L, 1);
+    at<PushNumber>(0x006F3810)(L, *at<uint32_t *>(0x00C4D888));
+    return 2;
+  }
+  if (!std::strcmp(name, "CombatGeometry")) {
+    if (type(L, 2) != 4) return response(L, false, "Expected target GUID");
+    const char *text = str(L, 2);
+    if (!text || std::strlen(text)!=18 || text[0]!='0' || text[1]!='x') return response(L, false, "Invalid GUID");
+    char *end = nullptr;
+    const uint64_t guid = std::strtoull(text+2, &end, 16);
+    double values[8]{};
+    if (!end || *end || !combatGeometry(guid, values)) return response(L, false, "Target geometry is unavailable");
+    at<PushNumber>(0x006F3810)(L, 1);
+    for (double value : values) at<PushNumber>(0x006F3810)(L, value);
+    return 9;
   }
   if (!std::strcmp(name, "SetHeading")) {
     if (type(L, 2) != 3) return response(L, false, "Expected heading in radians");

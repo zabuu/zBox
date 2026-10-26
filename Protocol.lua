@@ -213,6 +213,7 @@ function B:Tick(now, elapsed)
     self:MovementTick(now)
     self:CastingTick(now)
     self:MirrorAgentTick(now)
+    self:PetTick(now)
     if now - self.lastStatus >= 0.5 then
       self:SendStatus()
       self.lastStatus = now

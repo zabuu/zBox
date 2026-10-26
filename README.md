@@ -3,14 +3,13 @@
 A compact control panel for a second **WoW 1.12.1.5875** character on your own
 private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
-An optional mode mirrors normal movement, jumping and character heading.
+Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.4.2 | Native bridge 0.1.5 | Windows x86**
+**Addon 0.5.0 | Native bridge 0.1.6 | Windows x86**
 
-Updating from 0.3.2 or later: `/reload` on both characters. The bridge is unchanged.
-Character views now use a paper doll, movable bag windows, a two-page spellbook,
-a talent tree, a quest list with a detail pane, and scrolling NPC dialogue.
-Upgrading from an older bridge still requires the DLL update and full restart.
+This release updates the bridge: close both clients, update the addon and the
+game-root DLL as described below, then fully restart both clients. `/reload`
+alone cannot enable native click-to-move or the new Pet controls.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -55,7 +54,8 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-This release needs bridge **0.1.5** for Mirror mode's jump observation. Bridge
+This release needs bridge **0.1.6** for native click-to-move and Pet controls.
+Bridge 0.1.5 supports Mirror mode's jump observation. Bridge
 0.1.4 supports NPC interactions and older movement controls; 0.1.3 supports the
 earlier action controls. Fully restart both clients after updating the DLL.
 
@@ -124,7 +124,7 @@ available. Once unlinked, **x** can close the panel completely.
   Popouts open below the dock when space above is insufficient. They scale to
   the available vertical space if neither side can fit them at full size.
 - **Keys** binds click-to-move, forward/backward, turning, strafing, follow,
-  assist, jump, stop and the panel. Movement supports combined directions and
+  assist, pet attack, jump, stop and the panel. Movement supports combined directions and
   works while the panel is hidden. Click a binding, then press a key combination
   or middle/extra mouse button; Escape cancels and Backspace clears it.
 - **Setup > Panel scale** changes size in 5% steps. `/zbox scale 0.75` sets 75%;
@@ -136,6 +136,9 @@ available. Once unlinked, **x** can close the panel completely.
   this resumption. Unknown macro cast times use the same stopping behavior.
 - **Move** arms a terrain click. Right-click or Escape cancels; a missed terrain
   trace keeps the picker open. **More > Move pad** has held direction buttons.
+  The picker prefers zAPI's refreshed native ground cursor when it matches the
+  screen cursor, with the calibrated terrain ray as fallback. Account 2 uses
+  WoW's native point movement, followed by a precise correction if it stops short.
 - **STOP** cancels owned movement, follow and casting. It takes priority over
   previously queued commands. `/zbox stop` does the same.
 
@@ -158,6 +161,47 @@ remote cooldown and usability information.
 If account 2 rearranges an action slot or its spellbook, re-drag the skill to
 refresh the saved action stamp. Macros remain tied to the paired character and
 realm across reloads. Dragging a skill never casts it.
+
+### Pet controls and control macros
+
+Right-click **Follow** to cycle Follow / Mirror / Pet, or choose **Pet controls**
+in Setup. Pet mode shows **Follow**, **Assist** and **Attack** in the same compact
+dock. **Setup > Pet approach** selects Auto (class), Melee, or Ranged for hybrids.
+Hunters always use their ranged attack behavior.
+
+- **Follow** recalls account 2, stops its owned attack and follows the main.
+- **Attack** sends account 2 to account 1's selected enemy. Melee approaches and
+  starts auto-attack; before combat it tries a clear position behind the enemy,
+  using its facing and both units' combat reach. Casters approach to about 25
+  yards when needed and face the enemy while you choose spells. Hunters approach
+  or retreat to range and start learned Auto Shot.
+- **Assist** attacks the selected enemy and stays armed to use the main's target
+  during combat. With no enemy selected it follows until the main enters combat.
+  It does not pull a newly selected target while both characters are idle.
+
+After both characters leave combat, account 2 automatically follows again.
+Assist remains armed; Follow and one-shot Attack do not select another enemy.
+Cast-time spells stop movement and hold facing until the cast finishes. STOP,
+manual account-2 movement, NPC interaction and a mode change cancel the order.
+
+**Drag or Shift-click Follow, Assist, Attack, Move, or STOP** to put its macro on
+account 1's action bars. Export Follow while in Pet mode for a Pet Follow macro;
+Pet Follow/Assist/Attack macros select Pet mode when used, even after switching
+modes. They use the same saved pairing checks and character macro slots as
+remote skills. Exporting a button does not issue its command.
+
+For macros you create yourself, use one command per macro:
+
+| Control | Macro body |
+| --- | --- |
+| Pet Follow | `/zbox pet follow` |
+| Pet Assist | `/zbox pet assist` |
+| Pet Attack | `/zbox pet attack` |
+| Click-to-move picker | `/zbox move` |
+| Stop | `/zbox stop` |
+
+Unlike exported macros, handwritten slash commands use the currently configured
+pairing rather than storing a particular character and realm.
 
 ### Bags, gear and talents
 
@@ -213,7 +257,7 @@ selling, buyback and repair controls are not included.
 
 ### Mirror movement and mouse heading
 
-Right-click **Follow** to switch between Follow mode and **Mirror movement**, or
+Right-click **Follow** to cycle Follow / Mirror / Pet, or
 choose the mode in **Setup**. In Mirror mode, left-click the same button to pause
 or resume. `/zbox mirror`, `/zbox mirror pause` and `/zbox mirror off` provide the
 same controls. Mirror starts paused after reconnecting; click to resume.
@@ -237,9 +281,14 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 
 ## Limits and diagnostics
 
-- Click-to-move uses straight-line steering, with no pathfinding mesh. It stops
-  near the point or after 3.5 seconds without progress. Select clear routes.
+- Native click-to-move and its correction use straight travel, with no pathfinding
+  mesh. A stalled native move falls back to precise steering; 3.5 seconds without
+  progress stops movement. Select clear routes. No framerate settings are changed.
   Destinations must be in the same zone, within 120 yards and 35 yards vertically.
+- Pet rear positioning follows zPet's floor/corridor validation approach. zPet's
+  custom Take Position command moves actual pets on the server; it cannot move
+  another player character. Rear positioning is bounded and falls back to a
+  normal approach if unsuitable. Obstacles can still require manual positioning.
 - A four-second connection timeout stops owned movement. Held directions have
   a further 0.8-second input lease. This cannot recover a hung/crashed client.
 - Normal spell range, line of sight, cooldowns and target rules apply. Remote
@@ -252,7 +301,7 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.5**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.6**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -271,6 +320,7 @@ python tests\test_hotfix.py
 python tests\test_cast_facing.py
 python tests\test_character_views.py
 python tests\test_linked_controls.py
+python tests\test_pet_mode.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
@@ -285,6 +335,8 @@ The Lua fixtures cover isolated paired clients, replay/spoof rejection, casting,
 items/talents, 160 camera/viewport/UI-scale cases, movement leases, actual XML
 key-up bindings, remote macro exports, compact layouts, quest comparisons, NPC
 dialogs, one-off spending, cast pauses and movement/heading mirroring. Native
+point movement, final correction, rear approach, combat-end follow, hunter Auto
+Shot and control macro exports are also covered by paired fixtures. Native
 fixtures verify input-context restoration after success, Lua errors, Windows
 exceptions and reentry, and reject an unsupported executable.
 

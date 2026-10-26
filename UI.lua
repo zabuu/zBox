@@ -98,6 +98,36 @@ function U:Run(command, fields)
   if not ok then B:Notify(reason) end
 end
 
+function U:EnableControlDrag(control, kind)
+  local click, enter = control:GetScript("OnClick"), control:GetScript("OnEnter")
+  local function pickup()
+    local choice = type(kind) == "function" and kind() or kind
+    local ok, reason = B:PickupControl(choice)
+    if not ok then B:Notify(reason) end
+  end
+  control:RegisterForDrag("LeftButton")
+  control:SetScript("OnDragStart", function()
+    this.zBoxDragging = true; pickup()
+  end)
+  control:SetScript("OnDragStop", function()
+    this.zBoxDragging = nil; this.zBoxIgnoreClickUntil = GetTime() + 0.15
+  end)
+  control:SetScript("OnClick", function()
+    if this.zBoxDragging or GetTime() < (this.zBoxIgnoreClickUntil or 0) then return end
+    if arg1 ~= "RightButton" and IsShiftKeyDown and IsShiftKeyDown() then pickup()
+    elseif click then click() end
+  end)
+  control:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP"); GameTooltip:SetText("zBox control")
+    if enter then enter() end
+    GameTooltip:AddLine("Drag or Shift-click to create a macro for your action bars.", 0.7, 0.9, 0.85, true)
+    GameTooltip:Show()
+  end)
+  control:SetScript("OnLeave", function()
+    this:SetBackdropColor(0.09, 0.13, 0.18, 1); GameTooltip:Hide()
+  end)
+end
+
 function U:Create()
   if self.frame then return end
   local f = CreateFrame("Frame", "zBoxPanel", UIParent)
@@ -177,21 +207,33 @@ function U:Create()
   self.targetMode:SetScript("OnLeave", function() GameTooltip:Hide() end)
   self.followButton = compactButton(f, "Follow", 224, -84, 76, function()
     if arg1 == "RightButton" then
-      local ok, reason = B:SetMirrorMode(not B.db.mirrorMovement)
-      if not ok then B:Notify(reason) end
+      B:CycleMovementMode()
     elseif B.db.mirrorMovement then B:ToggleMirrorPause()
-    else U:Run("FOLLOW") end
+    else local ok,reason=B:FollowCommand(); if not ok then B:Notify(reason) end end
   end)
   self.followButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   self.followButton:SetScript("OnEnter", function()
     GameTooltip:SetOwner(this, "ANCHOR_TOP"); GameTooltip:SetText("Movement mode")
-    GameTooltip:AddLine("Right-click: switch Follow / Mirror. In Mirror mode, click to pause or resume.", 0.7, 0.9, 0.85, true)
+    GameTooltip:AddLine("Right-click: cycle Follow / Mirror / Pet. In Mirror, click to pause or resume.", 0.7, 0.9, 0.85, true)
     GameTooltip:AddLine("Mirror copies your movement, jump and character heading, including mouse turning.", 0.7, 0.9, 0.85, true); GameTooltip:Show()
   end)
   self.followButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  compactButton(f, "Move", 306, -84, 76, function() U:ArmMove() end)
+  self.petAssist = compactButton(f, "Assist", 252, -84, 56, function()
+    local ok,reason=B:PetOrder("assist"); if not ok then B:Notify(reason) end
+  end)
+  self.petAttack = compactButton(f, "Attack", 312, -84, 56, function()
+    local ok,reason=B:AttackCommand(); if not ok then B:Notify(reason) end
+  end)
+  self.petAssist:Hide(); self.petAttack:Hide()
+  self.moveButton = compactButton(f, "Move", 306, -84, 76, function() U:ArmMove() end)
   local stop = compactButton(f, "STOP", 388, -84, 96, function() U:Run("STOP") end)
+  self.stopButton = stop
   stop.caption:SetTextColor(1, 0.4, 0.36)
+  self:EnableControlDrag(self.followButton, function() return B.db.petMovement and "petfollow" or "follow" end)
+  self:EnableControlDrag(self.petAssist, "petassist")
+  self:EnableControlDrag(self.petAttack, "petattack")
+  self:EnableControlDrag(self.moveButton, "move")
+  self:EnableControlDrag(stop, "stop")
   self.toast = CreateFrame("Frame", nil, f)
   self.toast:SetWidth(496); self.toast:SetHeight(22)
   self.toast:SetPoint("TOPLEFT", f, "BOTTOMLEFT", 0, -3)
@@ -438,7 +480,8 @@ function U:Refresh()
   self.connection:SetTextColor(B.connected and 0.3 or 1, B.connected and 0.95 or 0.7, 0.7)
   local status = B.cache.status
   self.followButton.caption:SetText(B.db.mirrorMovement and (B.mirrorPaused and "Mirror II" or "Mirror ON") or "Follow")
-  if self.modeButton then self.modeButton.caption:SetText(B.db.mirrorMovement and "Mirror movement" or "Follow mode") end
+  if self.modeButton then self.modeButton.caption:SetText(B.db.mirrorMovement and "Mirror movement" or (B.db.petMovement and "Pet controls" or "Follow mode")) end
+  self:LayoutPetControls()
   if status then
     self.health:SetText("HP " .. status[5] .. "/" .. status[6] .. "    Power " .. status[7] .. "/" .. status[8])
     local movement = status[13] == "Moving to point" and "Moving" or (status[13] == "Following" and "Follow" or status[13])
@@ -606,13 +649,32 @@ function U:CreateSetup()
   compactButton(f, "Reset", 258, -243, 72, function() U:SetScale(0.85) end)
   label(f, "Movement mode", 10, 16, -280, 114)
   self.modeButton = compactButton(f, "Follow mode", 130, -274, 200, function()
-    local ok, reason = B:SetMirrorMode(not B.db.mirrorMovement)
-    if not ok then B:Notify(reason) end
+    B:CycleMovementMode()
   end)
-  button(f, "Disable / revoke", 16, -308, 170, function() B:Slash("off"); U:Refresh() end)
-  button(f, "Diagnostics", 196, -308, 128, function() B:Slash("diag") end)
-  button(f, "Close", 334, -308, 82, function() f:Hide() end)
+  label(f,"Pet approach",10,16,-309,114)
+  self.petStyleButton = compactButton(f,"Auto (class)",130,-303,200,function()
+    local nextStyle = { auto="melee", melee="ranged", ranged="auto" }
+    B.db.petStyle=nextStyle[B.db.petStyle or "auto"]; U:Refresh()
+  end)
+  f:SetHeight(380)
+  button(f, "Disable / revoke", 16, -340, 170, function() B:Slash("off"); U:Refresh() end)
+  button(f, "Diagnostics", 196, -340, 128, function() B:Slash("diag") end)
+  button(f, "Close", 334, -340, 82, function() f:Hide() end)
   f:Hide()
+end
+
+function U:LayoutPetControls()
+  local pet = B.db.petMovement
+  local placements = { {self.targetMode,106,pet and 82 or 112}, {self.followButton,pet and 192 or 224,pet and 56 or 76},
+    {self.moveButton,pet and 372 or 306,pet and 44 or 76}, {self.stopButton,pet and 420 or 388,pet and 64 or 96} }
+  for _,entry in ipairs(placements) do
+    entry[1]:ClearAllPoints(); entry[1]:SetPoint("TOPLEFT",self.frame,"TOPLEFT",entry[2],-84); entry[1]:SetWidth(entry[3])
+  end
+  if pet then self.petAssist:Show(); self.petAttack:Show() else self.petAssist:Hide(); self.petAttack:Hide() end
+  if self.petStyleButton then
+    local styles = { auto="Auto (class)", melee="Melee", ranged="Caster / ranged" }
+    self.petStyleButton.caption:SetText(styles[B.db.petStyle or "auto"] or styles.auto)
+  end
 end
 
 function U:Pair(role)
@@ -756,14 +818,14 @@ local keyRows = {
   { "Move to click", "ZBOX_MOVE" }, { "Forward", "ZBOX_FORWARD" }, { "Backward", "ZBOX_BACKWARD" },
   { "Turn left", "ZBOX_LEFT" }, { "Turn right", "ZBOX_RIGHT" },
   { "Strafe left", "ZBOX_STRAFELEFT" }, { "Strafe right", "ZBOX_STRAFERIGHT" },
-  { "Follow main", "ZBOX_FOLLOW" }, { "Assist main", "ZBOX_ASSIST" }, { "Jump", "ZBOX_JUMP" },
+  { "Follow main", "ZBOX_FOLLOW" }, { "Assist main", "ZBOX_ASSIST" }, { "Pet attack", "ZBOX_ATTACK" }, { "Jump", "ZBOX_JUMP" },
   { "Emergency stop", "ZBOX_STOP" }, { "Show / hide panel", "ZBOX_TOGGLE" }
 }
 
 function U:CreateKeys()
   local f = CreateFrame("Frame", "zBoxKeys", self.frame)
   self.keys, self.keyButtons = f, {}
-  f:SetWidth(396); f:SetHeight(376); f:SetPoint("BOTTOMRIGHT", self.frame, "TOPRIGHT", 0, 5)
+  f:SetWidth(396); f:SetHeight(400); f:SetPoint("BOTTOMRIGHT", self.frame, "TOPRIGHT", 0, 5)
   f:SetFrameLevel(self.frame:GetFrameLevel() + 20); f:SetClampedToScreen(true)
   f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1); f:EnableMouse(true)
   label(f, "Account 2 keybindings", 13, 14, -15)

@@ -3,11 +3,19 @@
 #include <cstdio>
 #include "../native/ScopedInvoke.h"
 #include "../native/MovementObserver.h"
+#include "../native/NativeMove.h"
 
 uint32_t context = 123, depth = 7, bindingExecuting = 0;
 volatile LONG busy = 0;
 int calls = 0, mode = 0;
 int movementCalls = 0, movementResult = 77;
+bool moveResult = true;
+int moveCalls = 0;
+bool __fastcall moveFixture(uintptr_t player, void *, uint32_t mode, const uint64_t *guid, const ZBoxPoint *point, float precision) {
+  assert(player==0x1234 && mode==4 && *guid==0 && point->x==1.25f && point->y==-2.5f && point->z==3.0f && precision==0);
+  assert(context==123 && depth==7 && bindingExecuting==7 && busy==0);
+  ++moveCalls; return moveResult;
+}
 uint32_t expectedOpcode = 0;
 int __fastcall movementFixture(uintptr_t mover, void *, uint32_t timestamp,
                                uint32_t opcode, float value, uint32_t extra) {
@@ -53,6 +61,11 @@ int main(int argc, char **argv) {
   jumps = -1;
   assert(ZBoxObserveMovement(sender, &jumps, 0x1234, 42, expectedOpcode, 3.25f, 99) == 77 && jumps == 0);
   assert(movementCalls == 4 && context == 123 && depth == 7 && bindingExecuting == 7 && busy == 0);
+  static_assert(sizeof(ZBoxPoint)==12,"Native XYZ layout");
+  auto mover=reinterpret_cast<ZBoxMoveTo>(&moveFixture);
+  const ZBoxPoint point{1.25f,-2.5f,3.0f};
+  assert(ZBoxSubmitMove(mover,0x1234,point));moveResult=false;
+  assert(!ZBoxSubmitMove(mover,0x1234,point) && moveCalls==2);
   if (argc > 1) {
     HMODULE dll = LoadLibraryA(argv[1]);
     assert(dll);
@@ -62,4 +75,5 @@ int main(int argc, char **argv) {
   }
   std::puts("PASS: full binding input context survives Lua restamping; context/depth/executing restored after success, Lua error, SEH, reentry and nested state; unsupported executable rejected");
   std::puts("PASS: native movement observer preserves thiscall arguments, return values and execution context; only completed jump sends increment the counter, including wrap");
+  std::puts("PASS: native move submission preserves XYZ layout, fixed ground verb/zero GUID, thiscall arguments, boolean return and input context");
 }

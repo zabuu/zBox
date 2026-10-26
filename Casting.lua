@@ -3,7 +3,7 @@ local B = zBox
 function B:CaptureCastFacing(replace)
   if self.castActive and not replace then return end
   self.castFacingGUID = nil
-  if self.mirrorInput and UnitCanAttack and UnitCanAttack("player", "target") then
+  if (self.mirrorInput or self.petState) and UnitCanAttack and UnitCanAttack("player", "target") then
     local guid = self:GUID("target")
     if guid ~= "" then self.castFacingGUID = guid end
   end
@@ -76,7 +76,8 @@ function B:CastEvent(eventName, duration)
     self.castEventTimeout = math.max(GetTime() + 30, self.castingUntil + 5)
     self:CaptureCastFacing(true)
     -- Events may fire inside a scoped native cast. Defer input calls to Tick.
-    if self.mirrorInput then
+    if self.petState then self.stopForCast = true
+    elseif self.mirrorInput then
       for _, moving in pairs(self.axes or {}) do if moving then self.stopForCast = true end end
     end
   elseif eventName == "SPELLCAST_DELAYED" then

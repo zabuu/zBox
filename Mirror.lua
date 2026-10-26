@@ -1,15 +1,16 @@
 local B = zBox
 
-function B:SetMirrorMode(enabled)
+function B:SetMirrorMode(enabled, quiet)
   if enabled then
     local ok, reason = self:ResetMirrorJump()
     if not ok then return false, reason end
   end
   if self.connected and self.db.role == "control" then self:Command("STOP") end
   self.db.mirrorMovement = enabled and true or false
+  self.db.petMovement = false
   self.mirrorPaused, self.lastMirrorAt = not enabled, nil
   if not enabled then self.lastMirrorJump = nil end
-  self:Notify(enabled and "Mirror movement enabled: heading, movement and jump" or "Follow mode selected")
+  if not quiet then self:Notify(enabled and "Mirror movement enabled: heading, movement and jump" or "Follow mode selected") end
   return true
 end
 
@@ -76,7 +77,7 @@ end
 function B:ResetMirrorJump()
   local info = self:GetBridgeInfo()
   if not info.jumpEvents then
-    if info.version == "zBoxBridge 0.1.5" then return false, "Native jump observer did not load; /zbox diag reports its status" end
+    if info.version == "zBoxBridge 0.1.5" or info.version == "zBoxBridge 0.1.6" then return false, "Native jump observer did not load; /zbox diag reports its status" end
     return false, "Mirror jumping needs zBoxBridge 0.1.5. Fully restart both clients after updating the DLL."
   end
   local ok, result, mask, heading, jumps = pcall(zBoxNative, "inputs")
