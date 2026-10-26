@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.5.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.5.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -147,6 +147,7 @@ function B:Disconnect(reason)
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
   self.lastMirrorJump = nil
+  if self.ResetMacroCooldowns then self:ResetMacroCooldowns() end
   if self.UI then
     self.UI.held, self.UI.hovered = nil, nil
     self.UI.bagAwaiting, self.UI.questSelected = nil, nil
@@ -289,6 +290,9 @@ frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
 frame:RegisterEvent("CHARACTER_POINTS_CHANGED")
 frame:RegisterEvent("SPELLS_CHANGED")
 frame:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
+frame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
+frame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+frame:RegisterEvent("UPDATE_MACROS")
 frame:RegisterEvent("UI_ERROR_MESSAGE")
 frame:RegisterEvent("SPELLCAST_START")
 frame:RegisterEvent("SPELLCAST_STOP")
@@ -328,6 +332,10 @@ frame:SetScript("OnEvent", function()
     if B.connected and B.db.role == "agent" and B.lastCommandAt and GetTime() - B.lastCommandAt < 2 then
       B:Send("ERROR", { tostring(arg1 or "Game action failed") }, true)
     end
+  elseif event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then
+    B.nextAgentCooldownCheck = nil
+  elseif event == "UPDATE_MACROS" then
+    B.nextWatchScan = nil
   elseif event == "SPELLCAST_START" or event == "SPELLCAST_STOP" or event == "SPELLCAST_FAILED" or event == "SPELLCAST_INTERRUPTED" or event == "SPELLCAST_CHANNEL_START" or event == "SPELLCAST_CHANNEL_STOP" or event == "SPELLCAST_DELAYED" or event == "SPELLCAST_CHANNEL_UPDATE" then
     if B.db.role == "agent" then B:CastEvent(event, arg2 or arg1) end
     if B.connected and B.db.role == "agent" and B.castRequestAt and GetTime() - B.castRequestAt < 8 then
@@ -337,6 +345,7 @@ frame:SetScript("OnEvent", function()
   else
     B.viewDirty = true
     if event == "ACTIONBAR_SLOT_CHANGED" or event == "SPELLS_CHANGED" then B.barDirty = true end
+    if event == "ACTIONBAR_SLOT_CHANGED" or event == "SPELLS_CHANGED" then B.nextWatchScan, B.nextAgentCooldownCheck = nil,nil end
   end
 end)
 frame:SetScript("OnUpdate", function()

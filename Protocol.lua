@@ -161,6 +161,9 @@ function B:Message(kind, fields, id, now)
     if page and page >= 1 and page <= 10 and page == math.floor(page) then
       self.actionPage, self.barDirty, self.lastReceive = page, true, now
     end
+  elseif kind == "WATCH" and self.db.role == "agent" and self.connected then
+    self.lastReceive = now
+    self:AcceptCooldownWatches(fields,id)
   elseif kind == "TIP" and self.db.role == "agent" and self.connected then
     self.lastReceive = now
     self:SendTooltip(fields[1], fields[2], fields[3])
@@ -169,7 +172,7 @@ function B:Message(kind, fields, id, now)
     self:Send("STATE", { "diagnostics", self:Diagnostics() }, true)
   elseif kind == "STATE" and self.db.role == "control" and self.connected then
     self.lastReceive = now
-    self:AcceptState(fields)
+    self:AcceptState(fields,id)
   elseif kind == "ACK" and self.db.role == "control" and self.connected then
     self.lastReceive = now
     local pending = self.pending[tonumber(fields[1])]
@@ -214,6 +217,7 @@ function B:Tick(now, elapsed)
     self:CastingTick(now)
     self:MirrorAgentTick(now)
     self:PetTick(now)
+    self:SendWatchedCooldowns(now)
     if now - self.lastStatus >= 0.5 then
       self:SendStatus()
       self.lastStatus = now
@@ -230,6 +234,7 @@ function B:Tick(now, elapsed)
   end
   if self.ControlTick then self:ControlTick(now) end
   if self.MirrorTick then self:MirrorTick(now) end
+  if self.MacroCooldownTick then self:MacroCooldownTick(now) end
   for id, incoming in pairs(self.incoming) do
     if now - incoming.at > 30 then self.incoming[id] = nil end
   end

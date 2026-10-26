@@ -5,11 +5,11 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.5.0 | Native bridge 0.1.6 | Windows x86**
+**Addon 0.5.1 | Native bridge 0.1.6 | Windows x86**
 
-This release updates the bridge: close both clients, update the addon and the
-game-root DLL as described below, then fully restart both clients. `/reload`
-alone cannot enable native click-to-move or the new Pet controls.
+Updating from 0.5.0: `/reload` on both characters. The bridge is unchanged.
+Older installations need bridge 0.1.6: close both clients, update the addon and
+game-root DLL as described below, then fully restart both clients.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -155,8 +155,12 @@ to target account 2; otherwise it uses the selected zBox target mode.
 
 Each export uses one of Vanilla's eighteen character macro slots. Dragging the
 same remote slot again reuses its macro. Existing macros are never deleted or
-overwritten to make room. Native bars show the macro icon; the zBox strip shows
-remote cooldown and usability information.
+overwritten to make room. Exported skill macros show account 2's cooldown swipe
+and countdown on **pfUI and standard Blizzard action bars**, including paged and
+side bars. Account 2 reports cooldown changes for exported actions and spellbook
+skills even when they are used directly in its own client. Timers work with the
+zBox dock minimized and count down locally between updates. Other bar addons
+need their own adapter. The zBox strip retains remote usability information.
 
 If account 2 rearranges an action slot or its spellbook, re-drag the skill to
 refresh the saved action stamp. Macros remain tied to the paired character and
@@ -170,9 +174,11 @@ dock. **Setup > Pet approach** selects Auto (class), Melee, or Ranged for hybrid
 Hunters always use their ranged attack behavior.
 
 - **Follow** recalls account 2, stops its owned attack and follows the main.
-- **Attack** sends account 2 to account 1's selected enemy. Melee approaches and
-  starts auto-attack; before combat it tries a clear position behind the enemy,
-  using its facing and both units' combat reach. Casters approach to about 25
+- **Attack** sends account 2 to account 1's selected enemy. Melee continuously
+  adjusts its approach and auto-attack range as the enemy moves or turns. It
+  tries to stay behind while the enemy targets someone else, including during
+  combat; when the enemy targets account 2 it holds range without circling.
+  An unknown enemy target during combat also skips rear positioning. Casters approach to about 25
   yards when needed and face the enemy while you choose spells. Hunters approach
   or retreat to range and start learned Auto Shot.
 - **Assist** attacks the selected enemy and stays armed to use the main's target
@@ -180,7 +186,11 @@ Hunters always use their ranged attack behavior.
   It does not pull a newly selected target while both characters are idle.
 
 After both characters leave combat, account 2 automatically follows again.
-Assist remains armed; Follow and one-shot Attack do not select another enemy.
+Assist remains armed. During an active Attack or Assist order, selecting another
+loaded attackable enemy on the main switches the chase to it. Looking at a
+friendly unit or clearing your target keeps the current enemy. Once recalled or
+returned to Follow, Attack does not pull a newly selected enemy; Assist can
+resume when the main enters combat. A target's death ends its chase.
 Cast-time spells stop movement and hold facing until the cast finishes. STOP,
 manual account-2 movement, NPC interaction and a mode change cancel the order.
 
@@ -287,8 +297,11 @@ Follow and NPC controls also pause it. The panel may remain hidden.
   Destinations must be in the same zone, within 120 yards and 35 yards vertically.
 - Pet rear positioning follows zPet's floor/corridor validation approach. zPet's
   custom Take Position command moves actual pets on the server; it cannot move
-  another player character. Rear positioning is bounded and falls back to a
-  normal approach if unsuitable. Obstacles can still require manual positioning.
+  another player character. Rear goals refresh at a bounded rate; blocked rear
+  positions fall back to an ordinary approach and are retried later. Moving
+  goals do not renew the physical no-progress timeout. An active, progressing
+  chase can last beyond the ordinary point-move timeout. Obstacles can still
+  require manual positioning.
 - A four-second connection timeout stops owned movement. Held directions have
   a further 0.8-second input lease. This cannot recover a hung/crashed client.
 - Normal spell range, line of sight, cooldowns and target rules apply. Remote
@@ -321,6 +334,7 @@ python tests\test_cast_facing.py
 python tests\test_character_views.py
 python tests\test_linked_controls.py
 python tests\test_pet_mode.py
+python tests\test_melee_cooldowns.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
@@ -336,7 +350,9 @@ items/talents, 160 camera/viewport/UI-scale cases, movement leases, actual XML
 key-up bindings, remote macro exports, compact layouts, quest comparisons, NPC
 dialogs, one-off spending, cast pauses and movement/heading mirroring. Native
 point movement, final correction, rear approach, combat-end follow, hunter Auto
-Shot and control macro exports are also covered by paired fixtures. Native
+Shot and control macro exports are also covered by paired fixtures. Action-bar
+cooldown subscriptions, remote timer updates and melee movement/aggro
+transitions have dedicated fixtures. Native
 fixtures verify input-context restoration after success, Lua errors, Windows
 exceptions and reentry, and reject an unsupported executable.
 

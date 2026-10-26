@@ -153,7 +153,7 @@ function B:SendView(override)
   if section == "actions" then self.barDirty = false end
 end
 
-function B:AcceptState(fields)
+function B:AcceptState(fields, sourceID)
   if fields[1] == "status" then
     if table.getn(fields) ~= 14 then return end
     self.cache.status = fields
@@ -199,6 +199,8 @@ function B:AcceptState(fields)
     for _, encoded in ipairs(self.Split(fields[2], "\n")) do
       self.cache.questKeys[self:Decode(encoded)[1]] = true
     end
+  elseif fields[1] == "proxycd" then
+    self:AcceptProxyCooldowns(fields, sourceID)
   elseif fields[1] == "cooldowns" then
     if table.getn(fields) ~= 3 then return end
     if tonumber(fields[2]) ~= self.actionPage then return end

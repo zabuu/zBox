@@ -174,6 +174,7 @@ function B:PickupProxy(command, slot, stamp, texture, label)
   end
   proxy.stamp, proxy.label, proxy.icon = stamp, label, texture
   self.db.proxies[id] = proxy
+  self.nextWatchScan = nil
   local ok, reason = pcall(PickupMacro, index)
   if not ok then return false, tostring(reason) end
   return true, command == "CONTROL" and "Drop the zBox control on one of your action bars." or

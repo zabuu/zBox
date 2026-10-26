@@ -83,6 +83,20 @@ function B:PetGeometry(guid)
     distance=math.sqrt((x-px)^2+(y-py)^2) }
 end
 
+function B:PetCanRear(guid, inCombat)
+  -- Use the commanded enemy's actual target, never the main's target-of-target
+  -- by accident. Unknown victims during combat do not authorize circling.
+  if self:GUID("target") ~= guid then return false end
+  local victim, player = self:GUID("targettarget"), self:GUID("player")
+  if victim == "" then return not inCombat end
+  if player ~= "" then return self:Name(victim) ~= self:Name(player) end
+  if UnitIsUnit then
+    local ok, same = pcall(UnitIsUnit, "targettarget", "player")
+    if ok then return not same end
+  end
+  return false
+end
+
 function B:PetFollow(state)
   state = state or self.petState
   local main = self:GroupUnit(self.db.peer)
@@ -91,8 +105,9 @@ function B:PetFollow(state)
   if not ok then self:CancelPet(); return false, reason end
   self:StopPetAttack(state)
   if state then
-    state.guid, state.seenCombat, state.quietAt, state.rearUntil, state.rearMoves = nil, nil, nil, nil, nil
-    state.lastPlan, state.lastAttack = nil, nil
+    state.guid, state.seenCombat, state.quietAt, state.behind, state.rearBlockedUntil = nil, nil, nil, nil, nil
+    state.lastPlan, state.lastAttack, state.lastRear = nil, nil, nil
+    state.lastMainTarget = self:GUID(main .. "target")
   end
   ok, reason = self:Invoke("FollowUnit", main)
   self.following = ok
@@ -110,6 +125,8 @@ function B:ReceivePet(order, guid, style)
   local ok, reason = self:StopMovement(nil, true)
   if not ok then return false, reason end
   self.petState = { mode = order == "assist" and "assist" or "follow", style = self:PetStyle(style) }
+  local main = self:GroupUnit(self.db.peer)
+  self.petState.lastMainTarget = main and self:GUID(main .. "target") or ""
   if order ~= "follow" and self:PetEnemy(guid) then
     self.petState.guid, self.petState.started = guid, GetTime()
   else return self:PetFollow() end
@@ -129,18 +146,18 @@ function B:PetGround(x,y,z, g)
   return gx,gy,gz
 end
 
-function B:PetApproach(state, g, inCombat, now)
+function B:PetApproach(state, g, canRear, now)
   local radius = state.style == "melee" and g.radius or 25
   local dx,dy = g.px-g.x,g.py-g.y
   local length = math.max(0.001,g.distance)
   local x,y = g.x+dx/length*radius,g.y+dy/length*radius
   if state.style ~= "melee" then
     if g.distance <= 26 and (state.style ~= "hunter" or g.distance >= 8) then return true end
-  elseif not inCombat and (not state.rearUntil or now < state.rearUntil) then
-    if not state.rearUntil and g.distance <= radius+12 then state.rearUntil = now+4 end
+  elseif canRear and now >= (state.rearBlockedUntil or 0) then
     local fx,fy = math.cos(g.facing),math.sin(g.facing)
-    local behind = g.distance > 0.2 and (dx*fx+dy*fy)/length < -0.25
-    if behind and g.distance <= radius+0.4 then return true end
+    local behind = g.distance > 0.2 and (dx*fx+dy*fy)/length < (state.behind and -0.1 or -0.3)
+    state.behind = behind
+    if behind and g.distance <= radius+0.4 and math.abs(g.pz-g.z)<2 then return true end
     x,y = g.x-fx*radius,g.y-fy*radius
     -- Avoid running through the enemy's centre on a frontal approach. One
     -- side waypoint gets us around it before the final rear point.
@@ -148,27 +165,24 @@ function B:PetApproach(state, g, inCombat, now)
       local side = dx*(-fy)+dy*fx >= 0 and 1 or -1
       x,y = g.x-fy*(radius+1)*side,g.y+fx*(radius+1)*side
     end
-  elseif g.distance <= radius+0.3 then return true end
+  elseif g.distance <= radius+0.3 and math.abs(g.pz-g.z)<2 then state.behind=nil; return true end
   local gx,gy,gz = self:PetGround(x,y,g.z,g)
   if not gx then
     -- A rejected rear point falls back to an ordinary melee approach.
-    if state.style == "melee" and not inCombat then
-      state.rearUntil = now
+    if state.style == "melee" and canRear then
+      state.rearBlockedUntil, state.behind = now+1, nil
+      if g.distance <= radius+0.3 and math.abs(g.pz-g.z)<2 then return true end
       gx,gy,gz = self:PetGround(g.x+dx/length*radius,g.y+dy/length*radius,g.z,g)
     end
     if not gx then return false, "No clear ground route to the target" end
   end
-  if now-(state.lastPlan or -10) >= 0.8 then
+  if state.lastRear ~= canRear or now-(state.lastPlan or -10) >= 0.3 then
     local d = self.destination
-    local changed = not d or (d.x-gx)^2+(d.y-gy)^2+(d.z-gz)^2 > 1.5^2
+    local changed = state.lastRear ~= canRear or not d or (d.x-gx)^2+(d.y-gy)^2+(d.z-gz)^2 > 0.6^2
     if changed then
-      if not inCombat then
-        state.rearMoves = (state.rearMoves or 0)+1
-        if state.rearMoves > 3 then state.rearUntil = now end
-      end
       local ok, reason = self:BeginMove(gx,gy,gz,"pet")
       if not ok then return false, reason end
-      state.lastPlan = now
+      state.lastPlan, state.lastRear = now, canRear
     end
   end
   return false
@@ -218,34 +232,38 @@ function B:PetTick(now)
     if now-state.quietAt >= 0.7 then self:PetFollow(state); return end
     return
   else state.quietAt = nil end
-  if state.mode == "assist" and mainCombat then
-    local guid = self:GUID(main .. "target")
-    if guid ~= state.guid and self:PetEnemy(guid) then
+  local mainTarget = self:GUID(main .. "target")
+  if (state.mode == "assist" and mainCombat) or (state.guid and mainTarget ~= state.lastMainTarget) then
+    if mainTarget ~= state.guid and self:PetEnemy(mainTarget) then
       local ok = self:StopMovement(nil, true, true)
       if not ok then self:CancelPet(); return end
       self:StopPetAttack(state)
-      state.guid, state.started, state.rearUntil, state.lastPlan = guid, now, nil, nil
-      state.seenCombat = true
+      state.guid, state.started, state.behind, state.lastPlan = mainTarget, now, nil, nil
+      state.rearBlockedUntil, state.lastRear = nil, nil
+      state.seenCombat = combat and true or nil
     end
   end
+  state.lastMainTarget = mainTarget
   if not state.guid then return end
-  if not state.seenCombat and state.style ~= "ranged" and now-(state.started or now)>15 then
+  if not state.seenCombat and state.style == "hunter" and now-(state.started or now)>15 then
     self:PetFollow(state); self:Send("ERROR", {"Attack did not start; returned to Follow"},true); return
   end
   if not self:PetEnemy(state.guid) then self:PetFollow(state); return end
-  local geometry = self:PetGeometry(state.guid)
-  if not geometry then self:PetFollow(state); return end
   if now-(state.nextCheck or -10) < 0.2 then return end
   state.nextCheck = now
-  local ready, reason = self:PetApproach(state, geometry, combat, now)
+  if self:GUID("target") ~= state.guid then
+    local selected, detail = self:ChooseTarget(state.guid)
+    if not selected then self:PetFollow(state); self:Send("ERROR", {detail}, true); return end
+  end
+  local geometry = self:PetGeometry(state.guid)
+  if not geometry then self:PetFollow(state); return end
+  local ready, reason = self:PetApproach(state, geometry, self:PetCanRear(state.guid, combat), now)
   if reason then self:PetFollow(state); self:Send("ERROR", {reason}, true); return end
   if not ready then return end
   if self.destination or self.following then
     local ok = self:StopMovement(nil,true,true)
     if not ok then self:CancelPet(); return end
   end
-  local selected, detail = self:ChooseTarget(state.guid)
-  if not selected then self:PetFollow(state); self:Send("ERROR", {detail}, true); return end
   local heading = self:HeadingToUnit(state.guid)
   if heading then
     local ok,result = pcall(zBoxNative,"SetHeading",heading)

@@ -11,6 +11,7 @@ mainCombat=false;ownCombat=false
 local exists=UnitExists
 UnitExists=function(unit)
  if unit=="target" then return enemies[selectedGUID] and true,selectedGUID end
+ if unit=="targettarget" then local e=enemies[selectedGUID];return e and e.victim and true,e and e.victim end
  if unit=="party1target" then return enemies[mainTarget] and true,mainTarget end
  if enemies[unit] then return true,unit end
  return exists(unit)

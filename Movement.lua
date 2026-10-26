@@ -62,10 +62,21 @@ function B:BeginMove(x, y, z, owner)
   if not px or type(GetPlayerFacing) ~= "function" then return false, "Movement requires zAPI and GetPlayerFacing (ClassicAPI)" end
   local distance = math.sqrt((x - px)^2 + (y - py)^2)
   if distance > 120 or math.abs(z - pz) > 35 then return false, "Choose a point within 120 yards and 35 yards vertically" end
+  local previous = owner == "pet" and self.destination
+  if previous and previous.owner == "pet" and previous.zone == (GetRealZoneText and GetRealZoneText() or "") then
+    -- Refresh a moving enemy's goal without braking or renewing the no-progress
+    -- watchdog. A stalled native move keeps its precise-steering fallback.
+    if previous.native then
+      local ok, result = pcall(zBoxNative, "MoveTo", x, y, z)
+      if not ok or result ~= 1 then return false, "Could not update the chase destination" end
+    end
+    previous.x, previous.y, previous.z, previous.distance = x, y, z, distance
+    return true, "Updated enemy position"
+  end
   local stopped, reason = self:StopMovement(nil, true, owner == "pet")
   if not stopped then return false, reason end
   self.destination = { x = x, y = y, z = z, started = GetTime(), progressAt = GetTime(), distance = distance,
-    zone = GetRealZoneText and GetRealZoneText() or "", owner = owner }
+    zone = GetRealZoneText and GetRealZoneText() or "", owner = owner, progressX = px, progressY = py, progressZ = pz }
   self.lastMovementMethod = "Lua steering"
   if self:GetBridgeInfo().nativeMove then
     local ok, result = pcall(zBoxNative, "MoveTo", x, y, z)
@@ -98,7 +109,7 @@ function B:MovementTick(now)
   local d = self.destination
   if not d then return end
   if self:IsCastHeld(now) then self:StopMovement(true, true, d.owner == "pet"); return end
-  if UnitIsDeadOrGhost("player") or now - d.started > 35 then self:StopMovement(); return end
+  if UnitIsDeadOrGhost("player") or (d.owner ~= "pet" and now - d.started > 35) then self:StopMovement(); return end
   if d.zone ~= (GetRealZoneText and GetRealZoneText() or "") then self:StopMovement(); return end
   local px, py, pz = self:Position()
   local facing = GetPlayerFacing and GetPlayerFacing()
@@ -109,6 +120,9 @@ function B:MovementTick(now)
   local arrival = math.max(0.35, type(speed) == "number" and speed*0.03 or 0.35)
   if distance < arrival and math.abs(d.z-pz) < 2 then self:StopMovement(nil, true, d.owner == "pet"); return end
   if distance < d.distance - 0.3 then d.distance, d.progressAt = distance, now end
+  if d.owner == "pet" and (px-d.progressX)^2+(py-d.progressY)^2+(pz-d.progressZ)^2 > 0.3^2 then
+    d.progressX, d.progressY, d.progressZ, d.progressAt = px, py, pz, now
+  end
   if now - d.progressAt > 3.5 then
     self:StopMovement()
     self:Send("ERROR", { "Movement stopped: no progress. Choose a clear route around obstacles." }, true)
