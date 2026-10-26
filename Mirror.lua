@@ -2,6 +2,10 @@ local B = zBox
 
 function B:SetMirrorMode(enabled)
   if enabled and not self:GetBridgeInfo().mirror then return false, "Mirror mode needs zBoxBridge 0.1.4 on both clients" end
+  if enabled then
+    local ok, reason = self:HookMirrorJump()
+    if not ok then return false, reason end
+  end
   if self.connected and self.db.role == "control" then self:Command("STOP") end
   self.db.mirrorMovement = enabled and true or false
   self.mirrorPaused, self.lastMirrorAt = not enabled, nil
@@ -11,7 +15,10 @@ end
 
 function B:ToggleMirrorPause()
   if not self.db.mirrorMovement then return end
-  if self.mirrorPaused then self.mirrorPaused, self.lastMirrorAt = false, nil
+  if self.mirrorPaused then
+    local ok, reason = self:HookMirrorJump()
+    if not ok then self:Notify(reason); return end
+    self.mirrorPaused, self.lastMirrorAt = false, nil
   else self:Command("STOP") end
   if self.UI then self.UI.dirty = true end
 end
@@ -64,14 +71,19 @@ function B:MirrorAgentTick(now)
 end
 
 function B:HookMirrorJump()
-  if self.mirrorJumpHook or type(Jump) ~= "function" then return end
-  local original = Jump
-  Jump = function(a,b,c)
-    original(a,b,c)
+  if self.mirrorJumpHook then return true end
+  if type(hooksecurefunc) ~= "function" then
+    return false, "Jump mirroring needs ClassicAPI's native hooksecurefunc; normal jumping has been left untouched"
+  end
+  -- A Lua replacement for Jump restamps its protected call as addon code in
+  -- 1.12. ClassicAPI's native post-hook runs the original before this observer.
+  local ok, reason = pcall(hooksecurefunc, "Jump", function()
     if B.connected and B.db.role == "control" and B.db.mirrorMovement and not B.mirrorPaused then
       B:MirrorTick(GetTime())
       B:Command("JUMP", { "mirror" })
     end
-  end
+  end)
+  if not ok then return false, "Could not observe jumps: " .. tostring(reason) end
   self.mirrorJumpHook = true
+  return true
 end

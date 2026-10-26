@@ -20,6 +20,7 @@ end
 
 local function button(parent, caption, x, y, width, handler)
   local f = CreateFrame("Button", nil, parent)
+  f:SetFrameLevel(parent:GetFrameLevel() + 1)
   f:SetWidth(width or 85); f:SetHeight(25)
   f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   f:SetBackdrop(backdrop); f:SetBackdropColor(0.09, 0.13, 0.18, 1)
@@ -35,6 +36,7 @@ end
 
 local function edit(parent, name, x, y, width)
   local f = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
+  f:SetFrameLevel(parent:GetFrameLevel() + 1)
   f:SetWidth(width); f:SetHeight(24); f:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
   f:SetAutoFocus(false); f:SetMaxLetters(48)
   f:SetScript("OnEscapePressed", function() this:ClearFocus() end)
@@ -71,12 +73,16 @@ function U:PlacePanel(panel, right)
   local height = panel:GetHeight() * scale
   local down = above < height and below > above
   local room = down and below or above
-  panel:SetScale(math.min(1, room / math.max(1, height)))
+  local panelScale = math.min(1, room / math.max(1, height))
+  local previous = panel.zBoxPlacement
+  if previous and previous.down == down and previous.right == right and math.abs(previous.scale - panelScale) < 0.0001 then return end
+  panel.zBoxPlacement = { down = down, right = right, scale = panelScale }
+  panel:SetScale(panelScale)
   panel:ClearAllPoints()
   local edge = right and "RIGHT" or "LEFT"
   panel:SetPoint((down and "TOP" or "BOTTOM") .. edge, self.frame, (down and "BOTTOM" or "TOP") .. edge, 0, down and -5 or 5)
-  panel:SetFrameStrata("DIALOG")
-  panel:SetFrameLevel(self.frame:GetFrameLevel() + 25)
+  -- Frame levels are assigned before controls are created. Raising an existing
+  -- panel does not raise its children in 1.12, so its background would eat clicks.
 end
 
 function U:PlacePanels()
@@ -187,6 +193,7 @@ end
 function U:CreateBrowser()
   local f = CreateFrame("Frame", "zBoxBrowser", self.frame)
   self.browser = f
+  f:SetFrameLevel(self.frame:GetFrameLevel() + 10)
   f:SetWidth(496); f:SetHeight(405); f:SetPoint("BOTTOMLEFT", self.frame, "TOPLEFT", 0, 5)
   f:SetClampedToScreen(true)
   f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 0.97); f:EnableMouse(true)
@@ -244,6 +251,7 @@ end
 
 function U:CreateCell(index, parent, dock)
   local cell = CreateFrame("Button", (dock and "zBoxDock" or "zBoxCell") .. index, parent)
+  cell:SetFrameLevel(parent:GetFrameLevel() + 1)
   cell.isDock = dock
   cell:SetWidth(dock and 32 or 115); cell:SetHeight(dock and 32 or 43)
   cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")

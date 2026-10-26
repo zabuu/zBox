@@ -28,7 +28,7 @@ Frame.__index=function(self,key)
  if string.find(key,"^[A-Z]") then return function() end end
 end
 function CreateFrame(kind,name,parent,template)
- local f=setmetatable({scripts={},shown=true,text="",width=100,height=100,level=1,parent=parent,name=name,kind=kind,children={},points={}},Frame)
+ local f=setmetatable({scripts={},shown=true,text="",width=100,height=100,level=parent and parent.level+1 or 1,parent=parent,name=name,kind=kind,children={},points={}},Frame)
  if parent then table.insert(parent.children,f) end
  mockSerial=(mockSerial or 0)+1;f.mockid=mockSerial
  if name then _G[name]=f end
@@ -48,6 +48,9 @@ function Frame:GetBottom() return self.mockBottom end
 function Frame:SetScale(value) self.scale=value end
 function Frame:GetFrameLevel() return self.level end
 function Frame:SetFrameLevel(n) self.level=n end
+function Frame:GetFrameStrata() return self.strata or (self.parent and self.parent:GetFrameStrata()) or "MEDIUM" end
+function Frame:SetFrameStrata(value) self.strata=value end
+function Frame:EnableMouse(value) self.mouseEnabled=value end
 function Frame:Show()
  local change=not self.shown; self.shown=true
  if change and self.scripts.OnShow then local old=this;this=self;self.scripts.OnShow();this=old end
@@ -128,7 +131,17 @@ ClearTarget=function() log("ClearTarget") end
 FollowUnit=function(unit) if unit~="player" then nativeFollowing=true end;log("FollowUnit",unit) end
 AssistUnit=function(unit) log("AssistUnit",unit) end
 AttackTarget=function() log("AttackTarget") end
-Jump=function() log("Jump") end
+nativePostHooks={}
+Jump=function(a,b,c)
+ log("Jump",a,b,c)
+ if nativePostHooks.Jump then nativePostHooks.Jump(a,b,c) end
+end
+originalNativeJump=Jump
+-- Model ClassicAPI's native post-hook: the normal protected path executes
+-- first, followed by an isolated observer; the addon never calls Jump itself.
+hooksecurefunc=function(name,callback)
+ assert(name=="Jump");nativePostHooks[name]=callback
+end
 SpellStopCasting=function() log("SpellStopCasting") end
 SpellStopTargeting=function() log("SpellStopTargeting") end
 PickupContainerItem=function(bag,slot) cursor,bags[bag][slot]=bags[bag][slot],cursor;log("PickupContainerItem",bag,slot) end

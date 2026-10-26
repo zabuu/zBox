@@ -5,7 +5,12 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.3.0 | Native bridge 0.1.4 | Windows x86**
+**Addon 0.3.1 | Native bridge 0.1.4 | Windows x86**
+
+Updating from 0.3.0: reload the UI on both characters. The bridge is unchanged.
+This hotfix removes the Lua replacement of the protected Jump function and keeps
+popout backgrounds below their controls. Jump observation is installed only when
+Mirror mode is enabled, using ClassicAPI's native post-hook.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -74,6 +79,7 @@ Install these companion components separately:
 - **SuperWoW**: GUID-capable unit targeting.
 - **zAPI 1.6+**: world positions, camera projection and terrain traces.
 - **ClassicAPI**, exposing `GetPlayerFacing`: steering towards world points.
+  Mirror mode also requires its native `hooksecurefunc` post-hook for jumping.
 - **SuperMacro** is optional. Existing macros on account 2's bars work through
   its remote action slots. The development client also uses Nampower.
 
@@ -234,7 +240,7 @@ workload. The scripts locate it with `vswhere`.
 
 ```powershell
 python -m pip install -r tests\requirements.txt
-python tests\test_features.py
+python tests\test_hotfix.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1

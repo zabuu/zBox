@@ -1,0 +1,51 @@
+"""Regressions for the 0.3.0 jump security and panel hit-testing failures."""
+from test_features import Pair, call_count
+
+p=Pair(ui=True)
+p.main.execute('assert(Jump==originalNativeJump,"zBox replaced the protected Jump global before Mirror was enabled")')
+assert p.main.eval('nativePostHooks.Jump') is None
+p.main.execute('Jump()')
+assert call_count(p.main,'Jump')==1 and call_count(p.alt,'Jump')==0
+p.main.execute('assert(zBox:SetMirrorMode(true));assert(Jump==originalNativeJump);Jump()');p.advance(.5)
+assert call_count(p.main,'Jump')==2 and call_count(p.alt,'Jump')==1
+p.main.execute('assert(zBox:SetMirrorMode(false));Jump()');p.advance(.5)
+assert call_count(p.main,'Jump')==3 and call_count(p.alt,'Jump')==1
+# No unsafe fallback if the native post-hook is unavailable.
+legacy=Pair()
+legacy.main.execute('hooksecurefunc=nil;local before=Jump;local ok,why=zBox:SetMirrorMode(true);assert(not ok and string.find(why,"hooksecurefunc"));assert(Jump==before);Jump()')
+assert call_count(legacy.main,'Jump')==1
+print('PASS: ordinary jump stays untouched; native post-hook observes only enabled mirroring; unavailable post-hook never installs a Lua wrapper')
+
+p=Pair(ui=True)
+p.main.execute('''
+UIParent.height=900;zBox.UI.frame:Show()
+zBox.UI.frame.mockTop=1050;zBox.UI.frame.mockBottom=940
+zBox.UI:ShowSetup();zBox.UI:PlacePanels()
+local function interactive(frame)
+ if frame.kind=="Button" or frame.kind=="EditBox" then
+  local parent=frame.parent
+  while parent and parent~=UIParent do
+   assert(frame.level>parent.level,"Panel background covers "..tostring(frame.kind))
+   parent=parent.parent
+  end
+ end
+ for _,child in ipairs(frame.children) do
+  if child.kind~="FontString" and child.kind~="Texture" then interactive(child) end
+ end
+end
+for _,panel in ipairs({zBox.UI.browser,zBox.UI.setup,zBox.UI.keys}) do interactive(panel) end
+local function collect(frame,levels)
+ if frame.kind~="FontString" and frame.kind~="Texture" then levels[frame.mockid]=frame.level end
+ for _,child in ipairs(frame.children) do collect(child,levels) end
+end
+local before={};collect(zBox.UI.frame,before)
+for i=1,40 do
+ zBox.UI.frame.mockTop=i%2==0 and 1050 or 120
+ zBox.UI.frame.mockBottom=i%2==0 and 940 or 10
+ zBox.UI:PlacePanels()
+end
+local after={};collect(zBox.UI.frame,after)
+for id,level in pairs(before) do assert(after[id]==level,"Repositioning changed a frame level") end
+for _,panel in ipairs({zBox.UI.browser,zBox.UI.setup,zBox.UI.keys}) do interactive(panel) end
+''')
+print('PASS: setup/browser/keys controls stay above every panel background; top/bottom repositioning preserves descendant frame levels')
