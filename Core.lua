@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.4.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.4.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -81,6 +81,7 @@ function B:Diagnostics()
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
   end
+  if self.NPCGuardStatus then report = report .. "; NPC automation=" .. self:NPCGuardStatus() end
   return report
 end
 
@@ -132,6 +133,7 @@ end
 function B:Disconnect(reason)
   if self.StopMovement then self:StopMovement() end
   self.connected, self.session, self.lastReceive = false, nil, nil
+  if self.RestoreNPCGuards then self:RestoreNPCGuards() end
   self.cache, self.pending, self.incoming = {}, {}, {}
   self.queueHigh, self.queueLow, self.lowIndex, self.highIndex = {}, {}, 1, 1
   self.sendID, self.receiveCommandID, self.activeView = 0, 0, nil
@@ -146,6 +148,7 @@ function B:Disconnect(reason)
     self.UI.held, self.UI.hovered = nil, nil
     self.UI.bagAwaiting, self.UI.questSelected = nil, nil
     self.UI:CancelMove()
+    if self.UI.UpdateVisibility then self.UI:UpdateVisibility() end
     self.UI.dirty = true
     if self.UI.frame and self.UI.frame:IsShown() then self.UI:Refresh() end
   end
@@ -208,6 +211,7 @@ function B:Initialize()
   end
   self.lastHello, self.lastHeartbeat, self.lastStatus = -10, -10, -10
   self.ready = true
+  if self.InstallNPCGuards then self:InstallNPCGuards() end
   if self.UI then self.UI:Create() end
   self:Print("Loaded " .. self.version .. ". /zbox opens the panel; /zbox help explains pairing.")
 end

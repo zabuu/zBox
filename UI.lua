@@ -57,6 +57,7 @@ function U:SetScale(value)
   end
   B.db.uiScale = value
   self.frame:SetScale(value)
+  if self.restoreButton then self.restoreButton:SetScale(value) end
   if self.pad then self.pad:SetScale(value) end
   if self.scaleLabel then self.scaleLabel:SetText(string.format("%.0f%%", value * 100)) end
   self:PlacePanels()
@@ -119,14 +120,33 @@ function U:Create()
   f:SetScript("OnHide", function()
     U:CancelMove(); U:ReleaseAxis()
     U.browser:Hide(); U.pad:Hide(); U.setup:Hide(); U.keys:Hide()
+    U:UpdateVisibility()
   end)
+  f:SetScript("OnShow", function() U:UpdateVisibility() end)
   table.insert(UISpecialFrames, "zBoxPanel")
   label(f, "zBox", 11, 12, -8, 36):SetTextColor(0.35, 0.9, 0.8)
   self.connection = label(f, "Not paired", 10, 52, -9, 250)
   compactButton(f, "More", 310, -4, 52, function() U:ToggleBrowser() end)
   compactButton(f, "Keys", 366, -4, 44, function() U:ShowKeys() end)
   compactButton(f, "Setup", 414, -4, 48, function() U:ShowSetup() end)
-  compactButton(f, "x", 466, -4, 18, function() f:Hide() end)
+  self.closeButton = compactButton(f, "x", 466, -4, 18, function() U:Minimize() end)
+  self.closeButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP")
+    GameTooltip:SetText(B.connected and "Minimize zBox" or "Close zBox")
+    if B.connected then GameTooltip:AddLine("A zBox + button stays visible while linked.", 0.7, 0.9, 0.85, true) end
+    GameTooltip:Show()
+  end)
+  self.closeButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  self.restoreButton = compactButton(UIParent, "zBox  +", 0, 0, 84, function() U:Restore() end)
+  self.restoreButton:SetFrameStrata("DIALOG"); self.restoreButton:SetClampedToScreen(true)
+  self.restoreButton:SetHeight(24)
+  self.restoreButton:SetScript("OnEnter", function()
+    GameTooltip:SetOwner(this, "ANCHOR_TOP"); GameTooltip:SetText("Restore zBox")
+    GameTooltip:AddLine("Linked to " .. (B.db.peer or "account 2") .. ". Click to expand the panel.", 0.7, 0.9, 0.85, true)
+    GameTooltip:Show()
+  end)
+  self.restoreButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+  self.restoreButton:Hide()
   self.health = label(f, "Account 2 is not connected", 9, 12, -28, 252)
   self.power = label(f, "", 9, 416, -28, 68)
   self.power:SetJustifyH("RIGHT")
@@ -391,7 +411,8 @@ function U:Click(cell, mouse)
       self:Refresh()
     end
   elseif cell.section == "gear" then
-    if IsShiftKeyDown() and mouse == "LeftButton" then
+    if mouse == "RightButton" or (IsShiftKeyDown() and mouse == "LeftButton") then
+      if row[4] == "" then return end
       self:Run("UNEQUIP", { row[1], row[4] })
     elseif B.bagSelection and mouse == "LeftButton" then
       local selected = B.bagSelection
@@ -405,6 +426,7 @@ end
 
 function U:Refresh()
   if not self.frame then return end
+  self:UpdateVisibility()
   local view = B.cache.view
   if B.view == "quests" and self.questMainOnly and B.cache.questKeys then
     local all, rows, page = B:MainOnlyQuests(), {}, self.questPage or 1
@@ -489,7 +511,7 @@ function U:Refresh()
   local help = { actions = "Click to cast. Right-click for self. Drag a skill onto your own action bars.",
     spells = "Click to cast. Drag a spell onto your bars. Passive spells cannot be used.",
     bags = "Left click selects an item for equipping. Right click uses it on account 2.",
-    gear = "Select an item in Bags, then click its slot. Shift-click gear to unequip.",
+    gear = "Select an item in Bags, then click its slot. Right-click gear to unequip.",
     talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites.",
     quests = "Select a quest to read objectives and compare progress. Main only shows missing questlines.",
     npc = "Target an NPC and click Talk. Account 2 must be nearby. Purchases require a second click." }
@@ -677,10 +699,36 @@ end
 
 function U:Toggle()
   if not self.frame then return end
-  if self.frame:IsShown() then self.frame:Hide() else self.frame:Show() end
+  if self.frame:IsShown() then self:Minimize() else self:Restore() end
+end
+
+function U:UpdateVisibility()
+  if self.closeButton then self.closeButton.caption:SetText(B.connected and "-" or "x") end
+  if not self.restoreButton then return end
+  if B.connected and not self.frame:IsShown() then
+    if not self.restoreButton:IsShown() then
+      self.restoreButton:ClearAllPoints()
+      self.restoreButton:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
+      self.restoreButton:Show()
+    end
+  else self.restoreButton:Hide() end
+end
+
+function U:Minimize()
+  self.frame:Hide()
+  GameTooltip:Hide()
+  self:UpdateVisibility()
+end
+
+function U:Restore()
+  self.frame:Show()
+  GameTooltip:Hide()
+  self:Refresh()
+  self:PlacePanels()
 end
 
 function U:Tick(now)
+  self:UpdateVisibility()
   if not self.frame:IsShown() or now - self.lastTick < 0.15 then return end
   self.lastTick = now
   self:PlacePanels()

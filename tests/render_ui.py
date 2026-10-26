@@ -217,3 +217,7 @@ for i,(section,preview) in enumerate(previews):
     ImageDraw.Draw(sheet).text((18+(i%3)*524,8+(i//3)*560),section.title(),font=ImageFont.truetype(str(FONT),16),fill='#d6ccac')
 sheet.save(out/'character-views-preview.png')
 print('Saved character-view contact sheet:',out/'character-views-preview.png')
+lua.execute('zBox.UI:Minimize()')
+rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+mx,my,mw,mh=rect(lua.globals().zBox.UI.restoreButton)
+scaled_crop(mx,my,mw,mh).save(out/'minimized-preview.png')

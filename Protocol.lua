@@ -122,6 +122,7 @@ function B:Message(kind, fields, id, now)
   if kind == "HELLO" and self.db.role == "agent" then
     if fields[1] ~= self:Realm() then return end
     self.connected, self.lastReceive = true, now
+    if self.InstallNPCGuards then self:InstallNPCGuards() end
     self:Send("READY", { self.version, self:Realm(), UnitName("player"),
       type(zBoxNative) == "function" and "bridge" or "lua" }, true)
     self.activeView = self.activeView or { section = "actions", page = 1 }
@@ -190,6 +191,7 @@ function B:Message(kind, fields, id, now)
 end
 
 function B:Tick(now, elapsed)
+  if self.NPCGuardTick then self:NPCGuardTick(now) end
   if self.worldSuspended or not self:IsEnabled() then
     if self.connected then self:Disconnect("Pairing inactive or peer left the group") end
     return

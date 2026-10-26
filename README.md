@@ -5,9 +5,9 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.4.0 | Native bridge 0.1.5 | Windows x86**
+**Addon 0.4.1 | Native bridge 0.1.5 | Windows x86**
 
-Updating from 0.3.2: `/reload` on both characters. The bridge is unchanged.
+Updating from 0.3.2 or later: `/reload` on both characters. The bridge is unchanged.
 Character views now use a paper doll, movable bag windows, a two-page spellbook,
 a talent tree, a quest list with a detail pane, and scrolling NPC dialogue.
 Upgrading from an older bridge still requires the DLL update and full restart.
@@ -116,6 +116,9 @@ it is not encrypted authentication against a hostile group member.
 The panel is **496 x 110** at **85% scale** by default, approximately 422 x 94 UI
 units before the game's UI scale. Drag its background to move it. Status
 messages appear briefly below the panel instead of occupying a permanent row.
+While linked, **-** minimizes the dock to a persistent **zBox +** button; click
+it to restore. Escape and the panel keybinding also keep that restore button
+available. Once unlinked, **x** can close the panel completely.
 
 - **More** opens actions, spells, bags, gear, talents, quests and NPCs on demand.
   Popouts open below the dock when space above is insufficient. They scale to
@@ -163,9 +166,10 @@ open/close it; drag the window background to move it. Positions are saved per
 character. Open bags refresh in turn. Item borders show quality and selection.
 
 In **Bags**, left-click an item, open **Gear**, and click its destination slot.
-Right-click a bag item to use it. Shift-click equipped gear to unequip into an
+Right-click a bag item to use it. Right-click equipped gear to unequip into an
 empty backpack slot. Equipment changes require leaving combat. Binding dialogs
 may still need confirmation in account 2's window.
+Shift-left-click remains an alternative for unequipping.
 
 **Gear** places equipment around a character model, with weapons below it. The
 preview uses the grouped character visible to account 1; bring account 2 into
@@ -192,6 +196,12 @@ must have the NPC loaded and remain within its normal interaction range.
 The parchment shows the NPC's actual gossip, greeting, quest, progress or reward
 text, followed by the available choices. Use the mouse wheel or arrows to scroll
 long conversations. Vendor and trainer entries keep their prices and confirmation.
+
+On linked account 2, zBox pauses **_LazyPig** auto-gossip, quest replay/acceptance,
+automatic junk selling and repair. Account 1 keeps its normal behavior. These
+guards act on the addon's own routines and leave protected game APIs and saved
+preferences unchanged; normal behavior returns when the link ends. Diagnostics
+reports the adapter status. Other automation addons need their own integration.
 
 Vendor offers show the price and number of items. Each purchase buys **one
 offer**, including its normal bundle size. Trainer services show cost and
@@ -260,6 +270,7 @@ python -m pip install -r tests\requirements.txt
 python tests\test_hotfix.py
 python tests\test_cast_facing.py
 python tests\test_character_views.py
+python tests\test_linked_controls.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
