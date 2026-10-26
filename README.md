@@ -5,12 +5,12 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 An optional mode mirrors normal movement, jumping and character heading.
 
-**Addon 0.3.1 | Native bridge 0.1.4 | Windows x86**
+**Addon 0.3.2 | Native bridge 0.1.5 | Windows x86**
 
-Updating from 0.3.0: reload the UI on both characters. The bridge is unchanged.
-This hotfix removes the Lua replacement of the protected Jump function and keeps
-popout backgrounds below their controls. Jump observation is installed only when
-Mirror mode is enabled, using ClassicAPI's native post-hook.
+Update the bridge DLL and fully restart both clients. This release observes
+completed native jumps without replacing or post-hooking Lua's protected Jump
+function. In Mirror mode, hostile casts face their enemy before casting and
+keep facing that enemy until the actual cast or channel ends.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -55,9 +55,9 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-This release needs bridge **0.1.4** for NPC interactions and mirrored movement.
-Bridge 0.1.3 still supports the other controls, but must be replaced for the new
-features. Fully restart both clients after updating the DLL.
+This release needs bridge **0.1.5** for Mirror mode's jump observation. Bridge
+0.1.4 supports NPC interactions and older movement controls; 0.1.3 supports the
+earlier action controls. Fully restart both clients after updating the DLL.
 
 The prebuilt bridge is also available separately under
 [Releases](https://github.com/zabuu/zBox/releases/latest). Its checksum is in
@@ -79,7 +79,6 @@ Install these companion components separately:
 - **SuperWoW**: GUID-capable unit targeting.
 - **zAPI 1.6+**: world positions, camera projection and terrain traces.
 - **ClassicAPI**, exposing `GetPlayerFacing`: steering towards world points.
-  Mirror mode also requires its native `hooksecurefunc` post-hook for jumping.
 - **SuperMacro** is optional. Existing macros on account 2's bars work through
   its remote action slots. The development client also uses Nampower.
 
@@ -197,14 +196,18 @@ same controls. Mirror starts paused after reconnecting; click to resume.
 
 The bridge reads account 1's actual movement flags and character heading. This
 captures WASD, strafing, right-mouse turning and mouse-button movement without
-changing your bindings. Jump is mirrored through the normal Jump API. Rotating
+changing your bindings. The bridge records successful native jumps; the addon
+mirrors those events through account 2's normal Jump API. Account 1's Jump
+function and execution context are untouched. Rotating
 the camera with left mouse alone does not turn the character, so it does not turn
 account 2 either. Absolute heading updates keep camera-driven movement aligned.
 
 Start with the characters together and facing the same direction. Mirror mode
 sends movement and heading, not positions: latency, unequal movement speeds,
 collisions and obstacles can cause drift. Reposition them when needed. A cast-time
-spell holds account 2 still; current mirrored inputs resume after the cast. Follow
+spell holds account 2 still. Hostile casts face their enemy before casting and
+retain that enemy's heading through movement, heading changes and cast delays.
+Current mirrored inputs resume after the actual cast or channel ends. Follow
 is not invoked. STOP pauses mirroring until resumed; direct account-2 movement,
 Follow and NPC controls also pause it. The panel may remain hidden.
 
@@ -225,7 +228,7 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.4**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.5**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -241,6 +244,7 @@ workload. The scripts locate it with `vswhere`.
 ```powershell
 python -m pip install -r tests\requirements.txt
 python tests\test_hotfix.py
+python tests\test_cast_facing.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1

@@ -1,14 +1,14 @@
 local B = zBox
 
 function B:SetMirrorMode(enabled)
-  if enabled and not self:GetBridgeInfo().mirror then return false, "Mirror mode needs zBoxBridge 0.1.4 on both clients" end
   if enabled then
-    local ok, reason = self:HookMirrorJump()
+    local ok, reason = self:ResetMirrorJump()
     if not ok then return false, reason end
   end
   if self.connected and self.db.role == "control" then self:Command("STOP") end
   self.db.mirrorMovement = enabled and true or false
   self.mirrorPaused, self.lastMirrorAt = not enabled, nil
+  if not enabled then self.lastMirrorJump = nil end
   self:Notify(enabled and "Mirror movement enabled: heading, movement and jump" or "Follow mode selected")
   return true
 end
@@ -16,7 +16,7 @@ end
 function B:ToggleMirrorPause()
   if not self.db.mirrorMovement then return end
   if self.mirrorPaused then
-    local ok, reason = self:HookMirrorJump()
+    local ok, reason = self:ResetMirrorJump()
     if not ok then self:Notify(reason); return end
     self.mirrorPaused, self.lastMirrorAt = false, nil
   else self:Command("STOP") end
@@ -25,17 +25,20 @@ end
 
 function B:MirrorTick(now)
   if not self.connected or self.db.role ~= "control" or not self.db.mirrorMovement or self.mirrorPaused then return end
-  if now - (self.lastMirrorAt or -10) < 0.12 then return end
-  local ok, result, mask, heading = pcall(zBoxNative, "inputs")
-  if not ok or result ~= 1 or type(mask) ~= "number" or type(heading) ~= "number" then
+  local ok, result, mask, heading, jumps = pcall(zBoxNative, "inputs")
+  if not ok or result ~= 1 or type(mask) ~= "number" or type(heading) ~= "number" or not self.Integer(jumps, 0, 4294967295) then
     self:Command("STOP"); self:Notify("Mirror paused: update zBoxBridge on both clients"); return
   end
+  local jumped = self.lastMirrorJump ~= nil and jumps ~= self.lastMirrorJump
+  self.lastMirrorJump = jumps
+  if not jumped and now - (self.lastMirrorAt or -10) < 0.12 then return end
   local changed = mask ~= self.lastMirrorMask or not self.lastMirrorHeading or math.abs(heading-self.lastMirrorHeading) > 0.008
-  if not changed and now - (self.lastMirrorAt or -10) < 0.25 then return end
+  if not jumped and not changed and now - (self.lastMirrorAt or -10) < 0.25 then return end
   self.lastMirrorAt, self.lastMirrorMask, self.lastMirrorHeading = now, mask, heading
   heading = math.mod(heading, math.pi*2)
   if heading > math.pi*2 - 0.000001 then heading = 0 end
   self:Command("MIRROR", { mask, string.format("%.6f", heading), (GetRealZoneText and GetRealZoneText()) or "" })
+  if jumped then self:Command("JUMP", { "mirror" }) end
 end
 
 function B:AcceptMirror(mask, heading, zone)
@@ -60,7 +63,7 @@ function B:MirrorAgentTick(now)
   local input = self.mirrorInput
   if not input then return end
   if now - input.at > 0.8 or UnitIsDeadOrGhost("player") then self:StopMovement(); return end
-  if self.pendingCast or (self.castingUntil and now < self.castingUntil) then return end
+  if self:IsCastHeld(now) then return end
   local ok, result = pcall(zBoxNative, "SetHeading", input.heading)
   if not ok or result ~= 1 then
     self:StopMovement(); self:Send("ERROR", { "Mirror heading failed; movement stopped" }, true); return
@@ -70,20 +73,15 @@ function B:MirrorAgentTick(now)
   self:ManualAxes(input.mask)
 end
 
-function B:HookMirrorJump()
-  if self.mirrorJumpHook then return true end
-  if type(hooksecurefunc) ~= "function" then
-    return false, "Jump mirroring needs ClassicAPI's native hooksecurefunc; normal jumping has been left untouched"
+function B:ResetMirrorJump()
+  local info = self:GetBridgeInfo()
+  if not info.jumpEvents then
+    if info.version == "zBoxBridge 0.1.5" then return false, "Native jump observer did not load; /zbox diag reports its status" end
+    return false, "Mirror jumping needs zBoxBridge 0.1.5. Fully restart both clients after updating the DLL."
   end
-  -- A Lua replacement for Jump restamps its protected call as addon code in
-  -- 1.12. ClassicAPI's native post-hook runs the original before this observer.
-  local ok, reason = pcall(hooksecurefunc, "Jump", function()
-    if B.connected and B.db.role == "control" and B.db.mirrorMovement and not B.mirrorPaused then
-      B:MirrorTick(GetTime())
-      B:Command("JUMP", { "mirror" })
-    end
-  end)
-  if not ok then return false, "Could not observe jumps: " .. tostring(reason) end
-  self.mirrorJumpHook = true
+  local ok, result, mask, heading, jumps = pcall(zBoxNative, "inputs")
+  if not ok or result ~= 1 or not self.Integer(jumps, 0, 4294967295) then return false, "Native jump observation is unavailable" end
+  -- Baseline on enable/resume so jumps made while paused cannot be replayed.
+  self.lastMirrorJump = jumps
   return true
 end

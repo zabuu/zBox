@@ -1,8 +1,8 @@
 # Native bridge
 
-Version 0.1.4, capability contract 3, for the guarded WoW 1.12.1.5875 x86 image.
-Contract 2 remains supported for the older action/movement features. NPC and
-mirror controls require contract 3 on both clients.
+Version 0.1.5, capability contract 4, for the guarded WoW 1.12.1.5875 x86 image.
+Contracts 2 and 3 remain supported for their older action/movement features.
+The controller requires contract 4 for Mirror mode's passive jump observation.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped
@@ -13,6 +13,14 @@ quest rewards, a read-only local movement/heading snapshot, and local heading
 updates. NPC interaction resolves the supplied GUID, requires a loaded unit
 (excluding players) within six yards, then uses the client's right-click path.
 The addon additionally checks a living, non-hostile NPC before invoking it.
+
+Contract 4 adds a fourth `inputs` result: a wrapping unsigned 32-bit completed
+jump sequence. A native detour of the movement sender at `0x600A30` forwards
+every argument unchanged and preserves its result. Only a successful send with
+`MSG_MOVE_JUMP` (`0xBB`) increments the sequence. The observer never enters Lua
+or changes its execution context; no Lua Jump wrapper or post-hook is installed.
+If observer installation fails, the bridge retains contract 3 controls and
+reports `observer=ready/status` through `status` for diagnostics.
 
 The new client calls were checked in the actual executable:
 
@@ -41,4 +49,5 @@ game. Offline fixtures cannot establish compatibility with every companion DLL
 or substitute for an in-game test.
 
 Build with `native/build.ps1`; run `tests/test_native.ps1` for scoped-call,
-exception/reentry restoration, and unsupported-image rejection checks.
+exception/reentry restoration, movement observer argument/context/counter checks,
+and unsupported-image rejection checks.

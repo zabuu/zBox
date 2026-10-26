@@ -357,7 +357,7 @@ function B:Execute(fields)
   elseif command == "MIRROR" then
     return self:AcceptMirror(fields[2], fields[3], fields[4])
   elseif command == "JUMP" then
-    if fields[2] == "mirror" and (self.pendingCast or (self.castingUntil and GetTime() < self.castingUntil)) then return true, "Jump skipped while casting" end
+    if fields[2] == "mirror" and self:IsCastHeld(GetTime()) then return true, "Jump skipped while casting" end
     return self:Invoke("Jump")
   elseif command == "ACTION" then
     local slot = integer(fields[2], 1, 120)

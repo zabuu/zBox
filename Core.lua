@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.3.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.3.2", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -59,10 +59,11 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
+      info.jumpEvents = contract >= 4
     else
       info.label = "Bridge update required"
     end
@@ -75,7 +76,7 @@ function B:Diagnostics()
   local info = self:GetBridgeInfo()
   local report = "Addon " .. self.version .. "; " .. info.label .. "; " ..
     (self.lastInvoke or "No input requested since reload") .. "; cast event=" .. (self.lastCastSignal or "none") ..
-    "; pick=" .. (self.lastPick or "none")
+    "; pick=" .. (self.lastPick or "none") .. "; jump sequence=" .. tostring(self.lastMirrorJump or "none")
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
@@ -140,6 +141,7 @@ function B:Disconnect(reason)
   self.castRequestAt, self.lastCastSignal, self.lastCastFeedbackAt = nil, nil, nil
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
+  self.lastMirrorJump = nil
   if self.UI then
     self.UI.held, self.UI.hovered = nil, nil
     self.UI:CancelMove()

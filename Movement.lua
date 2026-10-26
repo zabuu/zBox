@@ -17,6 +17,7 @@ end
 function B:StopMovement(preserveCast, force)
   if not preserveCast then
     self.pendingCast, self.resumeFollow, self.castingUntil, self.followQuietAt = nil, nil, nil, nil
+    self.castActive, self.castEventTimeout, self.castFacingGUID, self.stopForCast = nil, nil, nil, nil
     self.mirrorInput = nil
   end
   self.destination, self.manualMove, self.manualUntil = nil, nil, nil
@@ -72,6 +73,16 @@ local function angleTo(y, x)
   if y > 0 then return math.pi / 2 end
   if y < 0 then return -math.pi / 2 end
   return 0
+end
+
+function B:HeadingToUnit(unit)
+  local x, y = self:Position("player")
+  local tx, ty = self:Position(unit)
+  if not x or not tx or x ~= x or y ~= y or tx ~= tx or ty ~= ty then return nil end
+  if (tx-x)^2 + (ty-y)^2 < 0.0001 then return nil end
+  local heading = angleTo(ty-y, tx-x)
+  if heading < 0 then heading = heading + math.pi*2 end
+  return heading
 end
 
 function B:MovementTick(now)

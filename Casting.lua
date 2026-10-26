@@ -1,5 +1,29 @@
 local B = zBox
 
+function B:CaptureCastFacing(replace)
+  if self.castActive and not replace then return end
+  self.castFacingGUID = nil
+  if self.mirrorInput and UnitCanAttack and UnitCanAttack("player", "target") then
+    local guid = self:GUID("target")
+    if guid ~= "" then self.castFacingGUID = guid end
+  end
+end
+
+function B:FaceCastTarget()
+  if not self.castFacingGUID then return true end
+  local heading = self:HeadingToUnit(self.castFacingGUID)
+  if not heading then return false, "Cannot read the cast target's position" end
+  local ok, result, detail = pcall(zBoxNative, "SetHeading", heading)
+  return ok and result == 1, ok and detail or tostring(result)
+end
+
+function B:IsCastHeld(now)
+  if self.castActive and self.castEventTimeout and now > self.castEventTimeout then
+    self.castActive, self.castFacingGUID, self.stopForCast = nil, nil, nil
+  end
+  return self.pendingCast or self.castActive or (self.castingUntil and now < self.castingUntil)
+end
+
 function B:CastTime(command, index)
   if not GetSpellInfo then return nil end
   local ok, name, rank, icon, cost, funnel, power, milliseconds
@@ -23,6 +47,9 @@ function B:PerformCast(request)
   end
   local ok, reason = self:ChooseTarget(request.target)
   if not ok then return false, reason end
+  self:CaptureCastFacing()
+  ok, reason = self:FaceCastTarget()
+  if not ok then return false, reason end
   self.castRequestAt, self.lastCastSignal = GetTime(), nil
   local hold = request.duration == 0 and 0 or ((request.duration or 2) + 0.6)
   self.castingUntil = math.max(self.castingUntil or 0, GetTime() + hold)
@@ -45,18 +72,32 @@ end
 function B:CastEvent(eventName, duration)
   if eventName == "SPELLCAST_START" or eventName == "SPELLCAST_CHANNEL_START" then
     self.castingUntil = GetTime() + (tonumber(duration) or 30000) / 1000 + 0.6
+    self.castActive = true
+    self.castEventTimeout = math.max(GetTime() + 30, self.castingUntil + 5)
+    self:CaptureCastFacing(true)
+    -- Events may fire inside a scoped native cast. Defer input calls to Tick.
+    if self.mirrorInput then
+      for _, moving in pairs(self.axes or {}) do if moving then self.stopForCast = true end end
+    end
   elseif eventName == "SPELLCAST_DELAYED" then
     self.castingUntil = math.max(GetTime(), self.castingUntil or 0) + (tonumber(duration) or 0) / 1000
+    self.castEventTimeout = math.max(self.castEventTimeout or 0, self.castingUntil + 5)
   elseif eventName == "SPELLCAST_CHANNEL_UPDATE" then
     self.castingUntil = GetTime() + (tonumber(duration) or 30000) / 1000 + 0.6
+    self.castEventTimeout = math.max(GetTime() + 30, self.castingUntil + 5)
   else
     self.castingUntil = GetTime() + 0.35
+    self.castActive, self.castFacingGUID, self.stopForCast, self.castEventTimeout = nil, nil, nil, nil
   end
   self.followQuietAt = nil
 end
 
 function B:CastingTick(now)
-  if UnitIsDeadOrGhost("player") then self.pendingCast, self.resumeFollow = nil, nil; return end
+  if UnitIsDeadOrGhost("player") then self:StopMovement(); return end
+  if self.stopForCast then
+    self.stopForCast = nil
+    self:StopMovement(true, true)
+  end
   local request = self.pendingCast
   if request then
     local stationary = false
@@ -71,13 +112,17 @@ function B:CastingTick(now)
     if now - request.at >= 0.15 and stationary then
       self.pendingCast = nil
       local ok, reason = self:PerformCast(request)
-      if not ok then self.castingUntil = now + 0.35; self:Send("ERROR", { reason }, true) end
+      if not ok then self.castingUntil, self.castFacingGUID = now + 0.35, nil; self:Send("ERROR", { reason }, true) end
     elseif now - request.at > 2 then
       self.pendingCast, self.castingUntil = nil, now + 0.35
       self:Send("ERROR", { "Account 2 is still moving; cast cancelled" }, true)
     end
   end
-  if not self.resumeFollow or self.pendingCast or (self.castingUntil and now < self.castingUntil) then return end
+  local held = self:IsCastHeld(now)
+  if self.castFacingGUID then
+    if held then self:FaceCastTarget() else self.castFacingGUID = nil end
+  end
+  if not self.resumeFollow or held then return end
   local unit = self:GroupUnit(self.db.peer)
   if not unit or UnitAffectingCombat("player") or UnitAffectingCombat(unit) then self.followQuietAt = nil; return end
   self.followQuietAt = self.followQuietAt or now

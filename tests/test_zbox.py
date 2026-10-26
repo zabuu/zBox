@@ -132,8 +132,10 @@ FollowUnit=function(unit) if unit~="player" then nativeFollowing=true end;log("F
 AssistUnit=function(unit) log("AssistUnit",unit) end
 AttackTarget=function() log("AttackTarget") end
 nativePostHooks={}
+nativeJumpSequence=0
 Jump=function(a,b,c)
  log("Jump",a,b,c)
+ if not jumpBlocked then nativeJumpSequence=(nativeJumpSequence+1)%4294967296 end
  if nativePostHooks.Jump then nativePostHooks.Jump(a,b,c) end
 end
 originalNativeJump=Jump
@@ -168,13 +170,13 @@ zAPI=function(command,unit,y,z,ex,ey,ez)
  if command=="setTarget" then zApiTargetCalls=zApiTargetCalls+1;TargetUnit(unit);return 1 end
 end
 zBoxNative=function(name,a,b,c)
- if name=="capabilities" then return 1,"zBoxBridge 0.1.4",3 end
- if name=="status" then return 1,"Fixture bridge 0.1.4" end
+ if name=="capabilities" then return 1,"zBoxBridge 0.1.5",4 end
+ if name=="status" then return 1,"Fixture bridge 0.1.5" end
  if name=="StopFollow" then nativeFollowing=false;log("StopFollow");return 1,"Native follow cancelled" end
  if name=="inputs" then
   local mask=0
   for i,axis in ipairs({"MoveForward","MoveBackward","TurnLeft","TurnRight","StrafeLeft","StrafeRight"}) do if axes[axis] then mask=mask+2^(i-1) end end
-  return 1,mask,facing
+  return 1,mask,facing,nativeJumpSequence
  end
  if name=="SetHeading" then facing=a;log("SetHeading",a);return 1,"Heading matched" end
  _G[name](a,b,c);return 1,"Requested"

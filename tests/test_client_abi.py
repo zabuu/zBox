@@ -42,6 +42,13 @@ assert ('mov','ecx, dword ptr [ebp + 0x10]') in send
 assert ('mov','ebx, dword ptr [ebp + 8]') in send
 assert ('mov','eax, dword ptr [ebp + 0xc]') in send
 assert ('ret','0x10') in send
+# The normal Jump path reaches the movement-event dispatcher, which sends the
+# actual jump through the observed native sender after permission/physics checks.
+assert ('call','0x60dea0') in instructions(0x513CB1,150)
+assert ('call','0x617930') in instructions(0x60DEA0,200)
+assert ('push','0xbb') in instructions(0x615ED1,10)
+assert ('call','0x60e0a0') in instructions(0x6163C5,20)
+assert ('call','0x600a30') in instructions(0x60E235,20)
 assert ('mov','ecx, dword ptr [0xb41414]') in instructions(0x468550,28)
 assert ('mov','eax, dword ptr [ecx + 0xc0]') in instructions(0x468550,28)
 cancel=instructions(0x60FB60,228)

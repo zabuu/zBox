@@ -17,7 +17,7 @@ p.advance(.3)
 assert call_count(p.alt,'UseAction')==1
 p.alt.execute('combat=true');p.advance(4)
 assert not p.alt.globals().zBox.following
-p.alt.execute('combat=false');p.advance(1)
+p.alt.execute('zBox:CastEvent("SPELLCAST_STOP");combat=false');p.advance(1)
 assert p.alt.globals().zBox.following
 p.alt.execute('UnitAffectingCombat=function(unit) return unit=="party1" end')
 p.main.execute('zBox:Command("ACTION",{1,zBox.cache.view.rows[1][4],"KEEP"})');p.advance(5)

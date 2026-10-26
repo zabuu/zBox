@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include "MinHook.h"
 #include "ScopedInvoke.h"
+#include "MovementObserver.h"
 
 namespace {
 uintptr_t base = 0;
@@ -24,9 +25,22 @@ using PushNumber = void(__fastcall *)(void *, double);
 using PushValue = void(__fastcall *)(void *, int);
 using GetTable = void(__fastcall *)(void *, int);
 Register originalRegister = nullptr;
+ZBoxMovementSender originalMovement = nullptr;
+volatile LONG completedJumps = 0;
+volatile LONG jumpObserverReady = 0, jumpObserverStatus = -1;
 unsigned long calls = 0;
 char lastCommand[48] = "none";
 int lastResult = -1;
+
+int __fastcall movementHook(uintptr_t mover, void *, uint32_t timestamp,
+                           uint32_t opcode, float value, uint32_t extra) {
+  return ZBoxObserveMovement(originalMovement, &completedJumps, mover,
+    timestamp, opcode, value, extra);
+}
+
+uint32_t jumpSequence() {
+  return static_cast<uint32_t>(InterlockedCompareExchange(&completedJumps, 0, 0));
+}
 
 template<class T> T at(uintptr_t address) {
   return reinterpret_cast<T>(base + address - 0x00400000);
@@ -170,15 +184,15 @@ int response(void *L, bool ok, const char *detail) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.4");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.5");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.4");
-    at<PushNumber>(0x006F3810)(L, 3);
+    response(L, true, "zBoxBridge 0.1.5");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 4 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.4; calls=%lu; last=%s; result=%d", calls, lastCommand, lastResult);
+    sprintf_s(detail, "zBoxBridge 0.1.5; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name, "inputs")) {
@@ -187,7 +201,8 @@ int __fastcall bridge(void *L) {
     at<PushNumber>(0x006F3810)(L, 1);
     at<PushNumber>(0x006F3810)(L, mask);
     at<PushNumber>(0x006F3810)(L, heading);
-    return 3;
+    at<PushNumber>(0x006F3810)(L, jumpSequence());
+    return 4;
   }
   if (!std::strcmp(name, "StopFollow")) {
     if (InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Input busy");
@@ -269,7 +284,23 @@ DWORD install() {
   void *entry = at<void *>(0x00704120);
   if (MH_CreateHook(entry, reinterpret_cast<void *>(&registerHook),
       reinterpret_cast<void **>(&originalRegister)) != MH_OK) return 4;
-  if (MH_EnableHook(entry) != MH_OK) return 5;
+  void *movement = at<void *>(0x00600A30);
+  jumpObserverStatus = MH_CreateHook(movement, reinterpret_cast<void *>(&movementHook),
+      reinterpret_cast<void **>(&originalMovement));
+  if (jumpObserverStatus == MH_OK) {
+    jumpObserverStatus = MH_EnableHook(movement);
+    if (jumpObserverStatus == MH_OK) InterlockedExchange(&jumpObserverReady, 1);
+    else MH_RemoveHook(movement);
+  }
+  // A failed observer disables mirror jumping, preserving existing controls.
+  if (MH_EnableHook(entry) != MH_OK) {
+    if (jumpObserverReady) {
+      MH_DisableHook(movement); MH_RemoveHook(movement);
+      InterlockedExchange(&jumpObserverReady, 0);
+    }
+    MH_RemoveHook(entry);
+    return 5;
+  }
   return 0;
 }
 DWORD ensureInstalled() {

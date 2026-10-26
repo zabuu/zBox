@@ -7,14 +7,34 @@ assert p.main.eval('nativePostHooks.Jump') is None
 p.main.execute('Jump()')
 assert call_count(p.main,'Jump')==1 and call_count(p.alt,'Jump')==0
 p.main.execute('assert(zBox:SetMirrorMode(true));assert(Jump==originalNativeJump);Jump()');p.advance(.5)
+assert p.main.eval('nativePostHooks.Jump') is None
 assert call_count(p.main,'Jump')==2 and call_count(p.alt,'Jump')==1
 p.main.execute('assert(zBox:SetMirrorMode(false));Jump()');p.advance(.5)
 assert call_count(p.main,'Jump')==3 and call_count(p.alt,'Jump')==1
-# No unsafe fallback if the native post-hook is unavailable.
+# No Lua hook is needed, and an older bridge gives a concrete update error.
 legacy=Pair()
-legacy.main.execute('hooksecurefunc=nil;local before=Jump;local ok,why=zBox:SetMirrorMode(true);assert(not ok and string.find(why,"hooksecurefunc"));assert(Jump==before);Jump()')
+legacy.main.execute('hooksecurefunc=nil;local before=Jump;assert(zBox:SetMirrorMode(true));assert(Jump==before);Jump()');legacy.advance(.5)
 assert call_count(legacy.main,'Jump')==1
-print('PASS: ordinary jump stays untouched; native post-hook observes only enabled mirroring; unavailable post-hook never installs a Lua wrapper')
+assert call_count(legacy.alt,'Jump')==1
+legacy.main.execute('zBox.bridgeInfo={ready=true,mirror=true};local ok,why=zBox:SetMirrorMode(true);assert(not ok and string.find(why,"0.1.5"))')
+# Only completed native jump events mirror. Repeated polls, failed/blocked jumps
+# and heading updates do not manufacture another jump.
+p=Pair()
+p.main.execute('hooksecurefunc=function() error("zBox must not hook the protected Jump global") end;assert(zBox:SetMirrorMode(true));jumpBlocked=true;Jump()');p.advance(.5)
+assert call_count(p.main,'Jump')==1 and call_count(p.alt,'Jump')==0
+p.main.execute('jumpBlocked=false;Jump()');p.advance(.5)
+assert call_count(p.alt,'Jump')==1
+p.advance(2)
+assert call_count(p.alt,'Jump')==1
+p.main.execute('facing=1.1');p.advance(.5)
+assert call_count(p.alt,'Jump')==1
+# Jumps before enabling/resuming are baselined, not replayed. Counter wrap works.
+p.main.execute('zBox:ToggleMirrorPause();Jump();Jump()');p.advance(.5)
+p.main.execute('zBox:ToggleMirrorPause()');p.advance(.5)
+assert call_count(p.alt,'Jump')==1
+p.main.execute('nativeJumpSequence=4294967295;zBox.lastMirrorJump=4294967295;Jump()');p.advance(.5)
+assert call_count(p.alt,'Jump')==2
+print('PASS: normal Jump is never hooked; only completed jumps mirror once; blocked jumps, paused events and heading updates do not mirror; counter wrap and old-bridge rejection work')
 
 p=Pair(ui=True)
 p.main.execute('''
