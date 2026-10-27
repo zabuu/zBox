@@ -30,7 +30,7 @@ function B:HoldDirection(axis, down, source)
   self:SendHeldDirections()
 end
 
-function B:SendHeldDirections()
+function B:SendHeldDirections(renew)
   local mask, bit = 0, 1
   for i = 1, table.getn(directions) do
     local active = false
@@ -39,7 +39,7 @@ function B:SendHeldDirections()
     bit = bit * 2
   end
   self.heldMask, self.lastHeldAt = mask, GetTime()
-  if self.connected and self.db.role == "control" then self:Command("AXES", { mask }) end
+  if self.connected and self.db.role == "control" then self:Command("AXES", { mask,renew and "renew" or "change" }) end
 end
 
 function B:ReleaseDirections(source)
@@ -63,7 +63,7 @@ function B:ControlTick(now)
   -- receives key-up. Release the old chord instead of renewing it indefinitely.
   if changed then self:SendHeldDirections() end
   if self.connected and self.heldMask and self.heldMask > 0 and now - (self.lastHeldAt or 0) >= 0.25 then
-    self:SendHeldDirections()
+    self:SendHeldDirections(true)
   end
 end
 

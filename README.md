@@ -5,7 +5,10 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.7.0 | Native bridge 0.1.8 | Windows x86**
+**Addon 0.7.1 | Native bridge 0.1.8 | Windows x86**
+
+Updating from 0.7.0: update zBox and zDNumbers, then `/reload` both characters.
+The bridge DLL is unchanged.
 
 Update the addon and **game-root bridge DLL on both computers/client folders**,
 then fully restart both clients. Bridge 0.1.8 adds automatic same-computer DLL
@@ -228,7 +231,8 @@ available. Once unlinked, **x** can close the panel completely.
   every movement direction, then wait for account 2 to stop before casting.
   Follow resumes after casting and after both characters leave combat, if it
   was active before the cast. Stop, manual movement and NPC controls cancel
-  this resumption. Unknown macro cast times use the same stopping behavior.
+  this resumption. Unknown macro cast times do not stop movement speculatively;
+  actual cast/channel start events still acquire a movement hold.
 - **Move** arms a terrain click. Right-click or Escape cancels; a missed terrain
   trace keeps the picker open. **More > Move pad** has held direction buttons.
   The picker prefers zAPI's refreshed native ground cursor when it matches the
@@ -386,6 +390,37 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 
 ## Limits and diagnostics
 
+Remote combat errors stay in the dock and `/zbox diag` by default, including
+range, facing and resource failures. Repeated game errors are coalesced before
+relaying, and the dock limits repeated feedback. Failed command acknowledgements
+also stay out of chat. `/zbox feedback verbose` enables limited diagnostic chat;
+`/zbox feedback quiet` restores the default.
+
+Instant melee abilities keep Pet pursuit, Follow, Mirror movement and held
+directions running. Resource/unusable-action checks happen before movement
+changes. Known positive cast times stop movement before casting; instant and
+unknown actions do not stop speculatively. An actual cast/channel start still
+holds movement. Failed instant abilities create no cast hold. Held-key renewals
+pause during real casts; explicitly changing movement can still interrupt them.
+
+### Account 2 damage through zDNumbers
+
+Enable **zDNumbers 1.0.2+ on both characters**, alongside zBox 0.7.1+. zBox relays
+account 2's outgoing damage/result metadata and identifies its GUID as a pet
+source. **zBox creates no damage text or frames.** zDNumbers and its embedded
+MSBT create, merge, filter and render the numbers using account 1's pet styles.
+Normal damage, crits, DoTs and attack results retain target GUIDs, spell icons,
+school and result flags. Unlinked characters cannot supply damage events.
+
+Existing zDNumbers pet options apply. With splitting off, the numbers share the
+target stream. With **Split pet damage** enabled and **Over the pet** selected,
+they anchor over account 2; your actual pet keeps a separate source record.
+The target-side option uses account 2's position for its own pet-facing geometry.
+Off-screen/unavailable sources use the normal MSBT Pet Outgoing fallback.
+No remote fonts/styles or executable text are sent. Diagnostics reports adapter
+availability and sent/received counts. Account 2's own pet is not relayed by
+this player-source adapter.
+
 - Native click-to-move and its correction use straight travel, with no pathfinding
   mesh. A stalled native move falls back to precise steering; 3.5 seconds without
   progress stops movement. Select clear routes. No framerate settings are changed.
@@ -433,6 +468,7 @@ python tests\test_melee_cooldowns.py
 python tests\test_mouse_dependencies.py
 python tests\test_ungrouped.py
 python tests\test_local_transport.py
+python tests\test_feedback_damage.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1

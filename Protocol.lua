@@ -256,6 +256,9 @@ function B:Message(kind, fields, id, now)
   elseif kind == "DIAG" and self.db.role == "agent" and self.connected then
     self.lastReceive = now
     self:Send("STATE", { "diagnostics", self:Diagnostics() }, true)
+  elseif kind == "DAMAGE" and self.db.role == "control" and self.connected then
+    self.lastReceive=now
+    self:AcceptDamage(fields,id)
   elseif kind == "STATE" and self.db.role == "control" and self.connected then
     self.lastReceive = now
     self:AcceptState(fields,id)
@@ -269,13 +272,12 @@ function B:Message(kind, fields, id, now)
       local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL") and
         fields[2] == "1" and self.lastCastFeedbackAt and self.lastCastFeedbackAt >= pending.at and now - self.lastCastFeedbackAt < 2
       local quiet = fields[2] == "1" and (pending.command == "AXES" or pending.command == "AXIS" or pending.command == "MIRROR")
-      if not castConfirmed and not quiet then self.notice = pending.command .. ": " .. tostring(fields[3]) end
-      if fields[2] ~= "1" then self:Print(self.notice) end
+      if fields[2]=="1" and not castConfirmed and not quiet then self.notice = pending.command .. ": " .. tostring(fields[3]) end
+      if fields[2] ~= "1" then self:RemoteFeedback(pending.command..": "..tostring(fields[3])) end
     end
   elseif kind == "ERROR" and self.db.role == "control" and self.connected then
     self.lastReceive = now
-    self.notice = "Account 2: " .. tostring(fields[1])
-    self:Print(self.notice)
+    self:RemoteFeedback("Account 2: " .. tostring(fields[1]))
   end
   if self.UI then self.UI.dirty = true end
 end

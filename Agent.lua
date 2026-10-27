@@ -369,6 +369,7 @@ function B:Execute(fields)
   elseif command == "AXIS" then
     return self:Manual(fields[2], fields[3] == "1")
   elseif command == "AXES" then
+    if fields[3]=="renew" and self:IsCastHeld(GetTime()) then return true,"Held inputs paused for cast" end
     return self:ManualAxes(fields[2])
   elseif command == "MIRROR" then
     return self:AcceptMirror(fields[2], fields[3], fields[4])

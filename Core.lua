@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.7.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.7.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -15,6 +15,28 @@ function B:Notify(text)
   self.notice = tostring(text)
   self:Print(text)
   if self.UI then self.UI:Refresh() end
+end
+
+-- Routine remote failures belong in the dock. Chat is opt-in for debugging.
+function B:RemoteFeedback(text)
+  text = tostring(text or "Game action failed")
+  local now = GetTime()
+  self.lastRemoteError = text
+  if not self.lastFeedbackAt or now-self.lastFeedbackAt>=1 then
+    self.notice, self.lastFeedbackAt = text,now
+  end
+  if self.db.verboseFeedback and (not self.lastFeedbackChatAt or now-self.lastFeedbackChatAt>=5) then
+    self.lastFeedbackChatAt=now;self:Print(text)
+  end
+end
+
+function B:RelayGameError(text)
+  local now = GetTime()
+  self.lastGameError, self.lastGameErrorCall = tostring(text or "Game action failed"),self.activeInvoke
+  if self.lastErrorRelayAt and (now-self.lastErrorRelayAt<0.5 or
+      (self.lastErrorRelayText==self.lastGameError and now-self.lastErrorRelayAt<3)) then return end
+  self.lastErrorRelayAt,self.lastErrorRelayText = now,self.lastGameError
+  self:Send("ERROR",{self.lastGameError},true)
 end
 
 function B:Name(name)
@@ -127,6 +149,7 @@ function B:Diagnostics()
     "; pick=" .. (self.lastPick or "none") .. "; jump sequence=" .. tostring(self.lastMirrorJump or "none")
   report = report .. "; movement=" .. (self.lastMovementMethod or "none") .. "; pet=" .. (self.petState and self.petState.mode or "off")
   if self.lastGameError then report = report .. "; last game error=" .. self.lastGameError .. " @ " .. (self.lastGameErrorCall or "between zBox calls") end
+  if self.lastRemoteError then report=report.."; last remote error="..self.lastRemoteError end
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
@@ -135,6 +158,8 @@ function B:Diagnostics()
   report = report .. "; dependencies: " .. self:DependencyReport()
   report = report .. "; transport=" .. (self:Channel() or "No transport: ungrouped pairing needs bridge 0.1.7")
   if self.localDetail then report = report .. "; " .. self.localDetail end
+  report=report.."; zDNumbers="..(self.damageBridge and "pet relay ready" or "not loaded / update required")
+  if self.damageBridge then report=report.."; damage sent/received="..tostring(self.damageRelayed or 0).."/"..tostring(self.damageReceived or 0) end
   if self.lastRoundTrip then report = report .. "; command ack=" .. math.floor(self.lastRoundTrip*1000+0.5) .. "ms" end
   return report
 end
@@ -206,6 +231,9 @@ function B:Disconnect(reason)
   self.heldModifiers = {}
   self.castRequestAt, self.lastCastSignal, self.lastCastFeedbackAt = nil, nil, nil
   self.lastGameError, self.lastGameErrorCall = nil,nil
+  self.lastRemoteError,self.lastFeedbackAt,self.lastFeedbackChatAt = nil,nil,nil
+  self.lastDamageID=nil
+  self.lastErrorRelayAt,self.lastErrorRelayText = nil,nil
   self.lastRoundTrip = nil
   self.localStopPacket = nil
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
@@ -241,7 +269,7 @@ function B:Command(command, fields)
   if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" then
     self.mirrorPaused = true
   end
-  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "ACTION" or command == "SPELL" or command == "TALK" or command == "NPC" then
+  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "TALK" or command == "NPC" then
     self.heldInputs, self.heldMask = {}, 0
     self.heldModifiers = {}
     if self.UI then self.UI.held = nil end
@@ -286,6 +314,7 @@ function B:Initialize()
   self.lastHello, self.lastHeartbeat, self.lastStatus = -10, -10, -10
   self.ready = true
   if self.InstallNPCGuards then self:InstallNPCGuards() end
+  if self.InstallDamageBridge then self:InstallDamageBridge() end
   if self.UI then self.UI:Create() end
   self:Print("Loaded " .. self.version .. ". /zbox opens the panel; /zbox help explains pairing.")
 end
@@ -330,6 +359,10 @@ function B:Slash(message)
       local ok, reason = self.UI:SetScale(rest == "reset" and 0.85 or rest)
       if not ok then self:Notify(reason) end
     end
+  elseif command == "feedback" then
+    if rest~="quiet" and rest~="verbose" then self:Notify("Use /zbox feedback quiet or /zbox feedback verbose");return end
+    self.db.verboseFeedback=rest=="verbose"
+    self:Notify(self.db.verboseFeedback and "Remote error chat enabled (limited repeats)" or "Remote combat errors stay in the dock and diagnostics")
   elseif command == "transport" then
     if rest ~= "auto" and rest ~= "whisper" then self:Notify("Use /zbox transport auto or /zbox transport whisper"); return end
     if self.connected and self.db.role == "control" then self:Command("STOP") end
@@ -410,8 +443,7 @@ frame:SetScript("OnEvent", function()
     end
   elseif event == "UI_ERROR_MESSAGE" then
     if not B.dependencyProbe and B.connected and B.db.role == "agent" and B.lastCommandAt and GetTime() - B.lastCommandAt < 2 then
-      B.lastGameError, B.lastGameErrorCall = tostring(arg1 or "Game action failed"), B.activeInvoke
-      B:Send("ERROR", { tostring(arg1 or "Game action failed") }, true)
+      B:RelayGameError(arg1)
     end
   elseif event == "ACTIONBAR_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_COOLDOWN" then
     B.nextAgentCooldownCheck = nil

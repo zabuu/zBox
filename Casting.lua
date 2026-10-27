@@ -51,16 +51,26 @@ function B:PerformCast(request)
   ok, reason = self:FaceCastTarget()
   if not ok then return false, reason end
   self.castRequestAt, self.lastCastSignal = GetTime(), nil
-  local hold = request.duration == 0 and 0 or ((request.duration or 2) + 0.6)
-  self.castingUntil = math.max(self.castingUntil or 0, GetTime() + hold)
+  if request.duration and request.duration>0 then
+    self.castingUntil = math.max(self.castingUntil or 0, GetTime() + request.duration + 0.6)
+  end
   if command == "ACTION" then return self:Invoke("UseAction", index, 0, request.target == "SELF" and 1 or nil) end
   return self:Invoke("CastSpell", index, BOOKTYPE_SPELL or "spell")
 end
 
 function B:RequestCast(command, index, stamp, target)
+  if command=="ACTION" and IsUsableAction then
+    local ok,usable,resource = pcall(IsUsableAction,index)
+    if ok and not usable then return false,resource and "Not enough power for that action" or "That action is not usable yet" end
+  elseif command=="SPELL" and IsUsableSpell then
+    local ok,usable,resource = pcall(IsUsableSpell,index,BOOKTYPE_SPELL or "spell")
+    if ok and not usable then return false,resource and "Not enough power for that spell" or "That spell is not usable yet" end
+  end
   local duration = self:CastTime(command, index)
   local request = { command = command, index = index, stamp = stamp, target = target, duration = duration, at = GetTime() }
-  if duration == 0 then return self:PerformCast(request) end
+  -- Unknown macros must not stop a melee chase speculatively. Actual cast or
+  -- channel start events still acquire a movement hold when needed.
+  if not duration or duration == 0 then return self:PerformCast(request) end
   local followed = self.following or self.resumeFollow
   local ok, reason = self:StopMovement(true, true)
   if not ok then return false, reason end
@@ -76,7 +86,7 @@ function B:CastEvent(eventName, duration)
     self.castEventTimeout = math.max(GetTime() + 30, self.castingUntil + 5)
     self:CaptureCastFacing(true)
     -- Events may fire inside a scoped native cast. Defer input calls to Tick.
-    if self.petState then self.stopForCast = true
+    if self.petState or self.following or self.destination then self.stopForCast = true
     elseif self.mirrorInput then
       for _, moving in pairs(self.axes or {}) do if moving then self.stopForCast = true end end
     end
@@ -87,7 +97,9 @@ function B:CastEvent(eventName, duration)
     self.castingUntil = GetTime() + (tonumber(duration) or 30000) / 1000 + 0.6
     self.castEventTimeout = math.max(GetTime() + 30, self.castingUntil + 5)
   else
-    self.castingUntil = GetTime() + 0.35
+    local stationaryCast = self.castActive or self.pendingCast or self.stopForCast or
+      (self.castingUntil and self.castingUntil>GetTime())
+    self.castingUntil = stationaryCast and GetTime()+0.35 or nil
     self.castActive, self.castFacingGUID, self.stopForCast, self.castEventTimeout = nil, nil, nil, nil
   end
   self.followQuietAt = nil
@@ -97,7 +109,9 @@ function B:CastingTick(now)
   if UnitIsDeadOrGhost("player") then self:StopMovement(); return end
   if self.stopForCast then
     self.stopForCast = nil
+    local followed = self.following or self.resumeFollow
     self:StopMovement(true, true)
+    self.resumeFollow = followed
   end
   local request = self.pendingCast
   if request then
