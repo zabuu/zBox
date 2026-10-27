@@ -1,10 +1,11 @@
 # Native bridge
 
-Version 0.1.7, capability contract 6, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.8, capability contract 7, for the guarded WoW 1.12.1.5875 x86 image.
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.
 Contract 6 also adds directed addon whispers for pairing without a party.
+Contract 7 adds same-computer IPC through user-restricted named shared memory.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped
@@ -56,6 +57,38 @@ through the synchronous sender. The normal addon sender frees its own store
 immediately after the same call. Transport requests do not overwrite the last
 game-input diagnostic. These paths need live verification on the target server;
 offline fixtures validate the envelope, not the server's configuration.
+
+Contract 7 adds `LocalOpen(realm, ownName, peerName, key, role)`, `LocalInfo`,
+`LocalSend(frame, priority)`, `LocalRead`, `LocalDiscard` and `LocalClose`.
+`LocalIPC.h` contains the implementation; it has no game-memory dependencies.
+The `Local\\` object name contains a SHA-256 digest of the length-delimited realm,
+ordered/canonical character names and pairing code. The mapping and mutex DACL
+grant access only to the current Windows user. No plaintext code is in the
+object name, no process handles are inherited, and no socket is opened.
+
+Two role slots hold process IDs, creation times, fresh random 64-bit epochs and
+heartbeats. Live duplicate role owners are rejected. Every frame names both
+process epochs, expires after one second and is bounded to 4352 bytes. A peer
+lease expires after two seconds without DLL polling. Each recipient has separate
+32-frame high/bulk rings and one reserved emergency slot. Emergency sends discard
+older queued traffic. Every mutex acquisition uses a zero timeout; contention or
+a full queue returns retry status 0, never blocks Lua. An abandoned mutex resets
+both claims before further messages may be read.
+
+Lua polls on the game thread at a minimum 10 ms interval, executes only its
+existing fixed operations, and retains name/realm/code/session/replay checks.
+Network-style game input is never invoked by a worker thread. Route changes,
+new peer epochs, loading/logout, revocation and UI reload retire stale sessions.
+Local frames use larger body chunks while the whisper framing/throttle remains
+unchanged for remote clients. `LocalInfo` exposes counters without replacing
+the last game-input diagnostic. Windows supplies bcrypt and advapi32; no new
+companion DLL download is needed.
+
+`tests/test_local_ipc.ps1` compiles a standalone x86 fixture from this same header
+and uses real child processes to test round trips, priority/backpressure, Stop,
+contention, generations, duplicate roles, stale frames, peer leases and abandoned
+locks. `tests/test_local_transport.py` covers actual Lua routing and frame polling,
+including loss/reconnect, fallback, snapshots and protected cast sequencing.
 
 The new client calls were checked in the actual executable:
 

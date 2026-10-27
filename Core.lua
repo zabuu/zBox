@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.6.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.7.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -41,6 +41,7 @@ function B:GroupUnit(name)
 end
 
 function B:Channel()
+  if self.localReady then return "LOCAL" end
   if self:GetBridgeInfo().directWhisper then return "WHISPER" end
   if self.db and not self:GroupUnit(self.db.peer) then return nil end
   if GetNumRaidMembers and GetNumRaidMembers() > 0 then return "RAID" end
@@ -76,13 +77,14 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
       info.jumpEvents = contract >= 4
       info.nativeMove = contract >= 5
       info.directWhisper = contract >= 6
+      info.localIPC = contract >= 7
     else
       info.label = "Bridge update required"
     end
@@ -132,6 +134,8 @@ function B:Diagnostics()
   if self.NPCGuardStatus then report = report .. "; NPC automation=" .. self:NPCGuardStatus() end
   report = report .. "; dependencies: " .. self:DependencyReport()
   report = report .. "; transport=" .. (self:Channel() or "No transport: ungrouped pairing needs bridge 0.1.7")
+  if self.localDetail then report = report .. "; " .. self.localDetail end
+  if self.lastRoundTrip then report = report .. "; command ack=" .. math.floor(self.lastRoundTrip*1000+0.5) .. "ms" end
   return report
 end
 
@@ -176,18 +180,21 @@ function B:Configure(role, peer, key)
   if not key or not string.find(key, "^[%w_%-]+$") or string.len(key) < 8 or string.len(key) > 32 then
     return false, "The shared pairing code must be 8-32 letters, numbers, _ or -"
   end
+  if self.CloseLocalTransport then self:CloseLocalTransport() end
   self:Disconnect("Pairing changed")
   self.db.role, self.db.peer, self.db.key, self.db.realm = role, peer, key, self:Realm()
   self.db.enabled = true
   self.session = role == "control" and self:NewSession() or nil
   self.lastHello = -10
-  self:Notify(role == "control" and ("Connecting to " .. peer .. (self:GetBridgeInfo().directWhisper and " by addon whisper" or "; ungrouped pairing needs bridge 0.1.7")) or
+  self:Notify(role == "control" and ("Connecting to " .. peer .. (self:GetBridgeInfo().localIPC and self.db.localTransport~=false and " (automatic local DLL / whisper)" or
+    (self:GetBridgeInfo().directWhisper and " by addon whisper" or "; ungrouped pairing needs bridge 0.1.7"))) or
     ("Allowing commands from " .. peer .. " on " .. self.db.realm))
   return true
 end
 
 function B:Disconnect(reason)
   if self.StopMovement then self:StopMovement() end
+  if self.localOpened then pcall(zBoxNative,"LocalDiscard") end
   self.connected, self.session, self.lastReceive = false, nil, nil
   self.peerGUID = nil
   if self.RestoreNPCGuards then self:RestoreNPCGuards() end
@@ -199,6 +206,8 @@ function B:Disconnect(reason)
   self.heldModifiers = {}
   self.castRequestAt, self.lastCastSignal, self.lastCastFeedbackAt = nil, nil, nil
   self.lastGameError, self.lastGameErrorCall = nil,nil
+  self.lastRoundTrip = nil
+  self.localStopPacket = nil
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
   self.lastMirrorJump = nil
@@ -241,12 +250,16 @@ function B:Command(command, fields)
   if command == "STOP" then
     self.mirrorPaused = true
     if not self:SendNow("CMD", fields) then return false, self.notice or "Could not send Stop" end
-    self.notice = "Emergency stop sent"
+    self.notice = self.localStopPacket and "Emergency stop queued (local IPC busy)" or "Emergency stop sent"
     return true
   end
   local id = self:Send("CMD", fields, true)
   if not id then return false, "Command queue is full" end
   self.pending[id] = { at = GetTime(), command = command }
+  if self.localReady then
+    self:Pump(GetTime(),0)
+    if not self.connected then return false,self.notice end
+  end
   return true
 end
 
@@ -263,6 +276,8 @@ function B:Initialize()
   zBoxDB = zBoxDB or {}
   self.db = zBoxDB
   self.bridgeInfo = nil
+  -- /reload recreates Lua while the DLL survives: retire its previous claim.
+  if self.CloseLocalTransport then self:CloseLocalTransport(true) end
   self.targetMode, self.view, self.page, self.actionPage = "TARGET", "actions", 1, 1
   self:Disconnect()
   if self.db.enabled and self.db.realm == self:Realm() and self.db.role == "control" then
@@ -285,6 +300,7 @@ function B:Slash(message)
   elseif command == "off" then
     if self.connected and self.db.role == "control" then self:SendNow("CMD", { "STOP" }) end
     self.db.enabled = false
+    if self.CloseLocalTransport then self:CloseLocalTransport() end
     self:Disconnect("Disabled")
     self:Notify("Disabled on this character")
   elseif command == "stop" then
@@ -314,6 +330,13 @@ function B:Slash(message)
       local ok, reason = self.UI:SetScale(rest == "reset" and 0.85 or rest)
       if not ok then self:Notify(reason) end
     end
+  elseif command == "transport" then
+    if rest ~= "auto" and rest ~= "whisper" then self:Notify("Use /zbox transport auto or /zbox transport whisper"); return end
+    if self.connected and self.db.role == "control" then self:Command("STOP") end
+    self:CloseLocalTransport(); self:Disconnect("Transport changed")
+    self.db.localTransport = rest ~= "whisper"
+    self.lastHello = -10
+    self:Notify(rest == "auto" and "Automatic local DLL transport enabled" or "Addon whisper transport selected")
   elseif command == "diag" then
     self:Print(self:Diagnostics())
     if self.connected and self.db.role == "control" then self:Send("DIAG", {}, true) end
@@ -321,6 +344,7 @@ function B:Slash(message)
     self:Print("On account 2: /zbox allow MainName sharedcode; party membership is not required with bridge 0.1.7.")
     self:Print("On account 1: /zbox control AltName sharedcode (same code, 8-32 characters)")
     self:Print("/zbox = panel; /zbox stop = emergency stop; /zbox off = revoke pairing")
+    self:Print("/zbox transport auto = prefer local DLL; /zbox transport whisper = compare addon-message transport")
     self:Print("Click-to-move needs zAPI and GetPlayerFacing; zBoxBridge enables protected inputs.")
     self:Print("/zbox diag reports input bridge versions and the last operation on both clients.")
     self:Print("/zbox scale 0.75 changes panel size; /zbox scale reset restores 85%.")
@@ -369,6 +393,7 @@ frame:SetScript("OnEvent", function()
     B:Receive(arg1, arg2, arg3, arg4)
   elseif event == "PLAYER_LEAVING_WORLD" or event == "PLAYER_LOGOUT" then
     B.worldSuspended = true
+    if B.CloseLocalTransport then B:CloseLocalTransport() end
     B:Disconnect("Loading or logged out")
   elseif event == "PLAYER_ENTERING_WORLD" then
     B.worldSuspended = false
@@ -407,6 +432,11 @@ end)
 frame:SetScript("OnUpdate", function()
   if not B.ready then return end
   B.clock = B.clock + (arg1 or 0)
+  if B:GetBridgeInfo().localIPC then B:LocalTransportTick(GetTime()) end
+  if B.localReady then
+    B:MirrorTick(GetTime())
+    B:Pump(GetTime(),0)
+  end
   if B.clock < 0.05 then return end
   local elapsed = B.clock
   B.clock = 0

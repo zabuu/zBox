@@ -475,7 +475,7 @@ function U:Refresh()
     for i = (page-1)*5+1, math.min(page*5, table.getn(all)) do table.insert(rows, all[i]) end
     view = { section = "quests", page = B.page, rows = rows, title = "Main only - missing on account 2", maximum = math.max(1, math.ceil(table.getn(all)/5)), displayPage = page }
   end
-  self.connection:SetText(B.connected and ((B.db.peer or "") .. "  /  Connected") or
+  self.connection:SetText(B.connected and ((B.db.peer or "") .. (B.localReady and "  /  Local DLL" or "  /  Connected")) or
     (B.db.enabled and ("Waiting for " .. (B.db.peer or "peer")) or "Not paired"))
   self.connection:SetTextColor(B.connected and 0.3 or 1, B.connected and 0.95 or 0.7, 0.7)
   local status = B.cache.status
@@ -631,7 +631,7 @@ function U:CreateSetup()
   f:SetFrameLevel(self.frame:GetFrameLevel() + 15); f:SetClampedToScreen(true)
   f:EnableMouse(true); f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1)
   label(f, "Pair characters", 13, 16, -16)
-  label(f, "Same realm and pairing code. No party needed with bridge 0.1.7.", 10, 16, -43, 416)
+  label(f, "Same realm and pairing code. Local DLL links automatically.", 10, 16, -43, 416)
   label(f, "Other character", 10, 16, -80)
   self.peer = edit(f, "zBoxPeerInput", 130, -72, 286)
   label(f, "Pairing code", 10, 16, -119)

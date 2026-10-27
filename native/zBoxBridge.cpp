@@ -10,6 +10,7 @@
 #include "MovementObserver.h"
 #include "NativeMove.h"
 #include "NativeWhisper.h"
+#include "LocalIPC.h"
 
 namespace {
 uintptr_t base = 0;
@@ -33,6 +34,7 @@ volatile LONG jumpObserverReady = 0, jumpObserverStatus = -1;
 unsigned long calls = 0;
 char lastCommand[48] = "none";
 int lastResult = -1;
+ZBoxIPC::Endpoint localIPC;
 
 int __fastcall movementHook(uintptr_t mover, void *, uint32_t timestamp,
                            uint32_t opcode, float value, uint32_t extra) {
@@ -235,15 +237,15 @@ bool whisper(const char *peer, const char *frame) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.7");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.8");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.7");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 6 : 3);
+    response(L, true, "zBoxBridge 0.1.8");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 7 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.7; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.8; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name, "inputs")) {
@@ -262,6 +264,30 @@ int __fastcall bridge(void *L) {
     InterlockedExchange(&busy,0);
     // Transport does not replace the last game-input diagnostic.
     return response(L,result,result ? "Addon whisper requested" : "Addon whisper rejected");
+  }
+  if (!std::strcmp(name,"LocalOpen")) {
+    for (int i=2;i<=5;++i) if (type(L,i)!=4) return response(L,false,"Expected local pairing identity");
+    if (!number(L,6,0,1)) return response(L,false,"Expected control/agent role");
+    const int result=localIPC.Open(str(L,2),str(L,3),str(L,4),str(L,5),static_cast<int>(at<ToNumber>(0x006F3620)(L,6)));
+    at<PushNumber>(0x006F3810)(L,result);at<PushString>(0x006F3890)(L,localIPC.Error());return 2;
+  }
+  if (!std::strcmp(name,"LocalClose")) { localIPC.Close();return response(L,true,"Local IPC closed"); }
+  if (!std::strcmp(name,"LocalDiscard")) { localIPC.Discard();return response(L,true,"Local input discarded"); }
+  if (!std::strcmp(name,"LocalInfo")) {
+    uint64_t peer=0;char detail[160]{},epoch[20]{};
+    const int result=localIPC.Info(peer,detail);
+    if (peer) sprintf_s(epoch,"%016llx",peer);
+    at<PushNumber>(0x006F3810)(L,result);at<PushString>(0x006F3890)(L,epoch);
+    at<PushString>(0x006F3890)(L,result==1?detail:localIPC.Error());return 3;
+  }
+  if (!std::strcmp(name,"LocalSend")) {
+    if (type(L,2)!=4 || !number(L,3,0,2)) return response(L,false,"Expected local frame and priority");
+    const int result=localIPC.Send(str(L,2),static_cast<int>(at<ToNumber>(0x006F3620)(L,3)));
+    at<PushNumber>(0x006F3810)(L,result);at<PushString>(0x006F3890)(L,localIPC.Error());return 2;
+  }
+  if (!std::strcmp(name,"LocalRead")) {
+    char frame[ZBoxIPC::FrameLimit+1]{};const int result=localIPC.Receive(frame);
+    at<PushNumber>(0x006F3810)(L,result);at<PushString>(0x006F3890)(L,result==1?frame:localIPC.Error());return 2;
   }
   if (!std::strcmp(name, "StopFollow")) {
     if (InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Input busy");

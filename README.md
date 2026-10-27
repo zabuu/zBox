@@ -5,11 +5,12 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.6.0 | Native bridge 0.1.7 | Windows x86**
+**Addon 0.7.0 | Native bridge 0.1.8 | Windows x86**
 
 Update the addon and **game-root bridge DLL on both computers/client folders**,
-then fully restart both clients. Bridge 0.1.7 adds direct addon whispers for
-pairing without a party; `/reload` alone cannot load it.
+then fully restart both clients. Bridge 0.1.8 adds automatic same-computer DLL
+communication, bypassing addon whispers locally; `/reload` alone cannot load it.
+Different computers keep the existing code-based addon whisper transport.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -54,7 +55,8 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-This release needs bridge **0.1.7 on both clients** for pairing without a party.
+This release needs bridge **0.1.8 on both clients** for local DLL communication.
+Bridge 0.1.7 supports pairing without a party through addon whispers.
 Bridge 0.1.6 supports native click-to-move and Pet controls while grouped.
 Bridge 0.1.5 supports Mirror mode's jump observation. Bridge
 0.1.4 supports NPC interactions and older movement controls; 0.1.3 supports the
@@ -115,7 +117,7 @@ unit/GUID, including a missing, old or conflicting client mod. It cannot identif
 the exact missing dependency from a screenshot. Check the components above and
 their loaded versions before reinstalling zBox's bridge.
 
-On both characters, reproduce the failure and run `/zbox diag`. Version 0.6.0
+On both characters, reproduce the failure and run `/zbox diag`. Version 0.7.0
 reports UnitXP presence, zAPI/SuperWoW/ClassicAPI/Nampower versions when available,
 facing/spell-info availability, and a read-only **GUID lookup** probe. `FAILED`
 means the local player's GUID could not be resolved through `UnitExists`; this
@@ -130,10 +132,12 @@ project provides no public-server compatibility or ban guarantee.
 
 ## Pair the characters
 
-Log both characters into the **same realm**, with addon 0.6.0 and bridge 0.1.7
+Log both characters into the **same realm**, with addon 0.7.0 and bridge 0.1.8
 loaded on both. They may run on the same computer or different computers.
 They do **not** need a shared party, raid or guild. No IP addresses or ports
-need configuring: directed addon whispers travel through the game server.
+need configuring. Clients on the same computer, Windows user and login session
+automatically prefer direct DLL communication. Different computers use directed
+addon whispers through the game server.
 
 On account 2:
 
@@ -153,18 +157,51 @@ the same controls and a code generator. `/zbox off` revokes control.
 
 Pairing is saved per character and realm. Commands are restricted to the chosen
 peer and supported operations; received text is never executed as Lua. With
-bridge 0.1.7, messages go only to that character using the addon whisper channel,
-without appearing as ordinary chat. Keep the code private; it is a pairing
-secret, not encrypted authentication.
+bridge 0.1.8, matching local clients exchange messages through Windows shared
+memory restricted to the current user. Otherwise, bridge 0.1.7+ sends them to
+the selected character through addon whispers, without appearing as ordinary
+chat. Keep the code private; it is a pairing secret, not encrypted authentication.
 
-The server must permit addon whispers between the characters. Normal whisper
+For different computers, the server must permit addon whispers between the characters. Normal whisper
 restrictions, including ignores and faction rules, still apply. Follow, Assist,
 targeting and the character preview require the other character/target to be
 loaded nearby; a working remote connection does not extend world visibility.
 
-Older bridges retain party/raid transport and require grouping. Update both
+Bridges before 0.1.7 retain party/raid transport and require grouping. Update both
 bridges together: a direct-whisper client cannot pair with a group-only client.
 The diagnostic report includes the selected transport.
+
+### Same-computer low-latency transport
+
+Keep the same pairing names and code. With bridge 0.1.8 loaded in both clients,
+the dock reads **Local DLL** and `/zbox diag` reports **transport=LOCAL**. No
+party, network address, listening port, firewall change or extra program is needed.
+Both clients must run as the same Windows user in the same login session.
+
+Local commands are sent immediately, bypassing the 16-packet-per-second addon
+message throttle. The addon polls local input about every **10 ms**, limited by
+the receiving client's actual frame rate. Bulk UI snapshots use 4096-byte chunks
+and a separate lane from commands. Stop has a reserved slot; busy/full queues
+retry without blocking the game thread or duplicating commands. Local Mirror
+movement/heading updates can run at about 30 ms intervals rather than 120 ms.
+
+Native IPC-only round trips measured below a millisecond in a two-process x86
+fixture. This is not an in-game latency promise: foreground/background frame
+rates, stopping before cast-time spells, game-server latency, the global cooldown
+and spell rules still apply. `/zbox diag` includes the most recent command
+acknowledgement round trip, including addon scheduling and command handling.
+
+Transport discovery and a new peer process trigger a fresh pairing session and
+stop owned movement. Old process generations, expired frames, old sessions and
+incorrect names/codes cannot issue commands through the new link. A local-peer
+loss reconnects through addon messages; normal input leases and connection
+timeouts still stop abandoned movement.
+
+`/zbox transport whisper` on either client disables the local fast path for
+comparison. `/zbox transport auto` restores it. If no matching local peer exists,
+pairing continues through whispers with the same code. Direct internet DLL
+communication using only a code would need a rendezvous/relay service; this
+release opens no network service and includes no such remote transport.
 
 ## Compact controls
 
@@ -372,7 +409,7 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.7**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.8**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -395,9 +432,11 @@ python tests\test_pet_mode.py
 python tests\test_melee_cooldowns.py
 python tests\test_mouse_dependencies.py
 python tests\test_ungrouped.py
+python tests\test_local_transport.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_local_ipc.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File Build-Package.ps1
 ```
 

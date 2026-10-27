@@ -18,7 +18,7 @@ $taskInputs = ($taskSources | ForEach-Object { '"' + $_ + '"' }) -join ' '
 $taskCommand = 'call "' + $taskVcvars + '" x86 >nul && cl /nologo /LD /O2 /MT /EHsc /std:c++17 ' +
   '/I"' + (Join-Path $taskMinhook 'include') + '" /I"' + (Join-Path $taskMinhook 'src') + '" ' +
   $taskInputs + ' /link /DEF:"' + (Join-Path $taskProject 'zBoxBridge.def') +
-  '" /OUT:"' + (Join-Path $taskOutput 'zBoxBridge.dll') + '" user32.lib kernel32.lib'
+  '" /OUT:"' + (Join-Path $taskOutput 'zBoxBridge.dll') + '" user32.lib kernel32.lib bcrypt.lib advapi32.lib'
 Push-Location -LiteralPath $taskOutput
 try {
   & cmd.exe /d /s /c $taskCommand

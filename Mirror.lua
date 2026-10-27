@@ -32,7 +32,7 @@ function B:MirrorTick(now)
   end
   local jumped = self.lastMirrorJump ~= nil and jumps ~= self.lastMirrorJump
   self.lastMirrorJump = jumps
-  if not jumped and now - (self.lastMirrorAt or -10) < 0.12 then return end
+  if not jumped and now - (self.lastMirrorAt or -10) < (self.localReady and 0.03 or 0.12) then return end
   local changed = mask ~= self.lastMirrorMask or not self.lastMirrorHeading or math.abs(heading-self.lastMirrorHeading) > 0.008
   if not jumped and not changed and now - (self.lastMirrorAt or -10) < 0.25 then return end
   self.lastMirrorAt, self.lastMirrorMask, self.lastMirrorHeading = now, mask, heading
@@ -77,7 +77,7 @@ end
 function B:ResetMirrorJump()
   local info = self:GetBridgeInfo()
   if not info.jumpEvents then
-    if info.version == "zBoxBridge 0.1.5" or info.version == "zBoxBridge 0.1.6" or info.version == "zBoxBridge 0.1.7" then return false, "Native jump observer did not load; /zbox diag reports its status" end
+    if info.version == "zBoxBridge 0.1.5" or info.version == "zBoxBridge 0.1.6" or info.version == "zBoxBridge 0.1.7" or info.version == "zBoxBridge 0.1.8" then return false, "Native jump observer did not load; /zbox diag reports its status" end
     return false, "Mirror jumping needs zBoxBridge 0.1.5. Fully restart both clients after updating the DLL."
   end
   local ok, result, mask, heading, jumps = pcall(zBoxNative, "inputs")

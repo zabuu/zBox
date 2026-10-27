@@ -1,1 +1,1 @@
-433aec9c84b39e9a188f2c7e81d521ca6efd574c890322b883da485fee8ae596  zBoxBridge.dll
+68eeee1ab7ad38fda0b468859952ea8604b24b7ff8835d76b5584f69fe75cdaf  zBoxBridge.dll

@@ -10,6 +10,52 @@ local function split(text, delimiter)
 end
 B.Split = split
 
+function B:CloseLocalTransport(force)
+  if self.localOpened or (force and self:GetBridgeInfo().localIPC) then pcall(zBoxNative,"LocalClose") end
+  self.localOpened, self.localReady, self.localPeerEpoch = nil,nil,nil
+  self.localRetryAt, self.lastLocalPoll, self.localDetail = nil,nil,nil
+end
+
+function B:LocalTransportTick(now)
+  if self.lastLocalPoll and now-self.lastLocalPoll<0.01 then return end
+  self.lastLocalPoll = now
+  local wasReady, previousEpoch = self.localReady and true or false, self.localPeerEpoch
+  local enabled = self.db and self.db.enabled and self.db.realm==self:Realm() and
+    not self.worldSuspended and self.db.localTransport~=false and self:GetBridgeInfo().localIPC
+  local ready, epoch = false,nil
+  if enabled then
+    if not self.localOpened and now>=(self.localRetryAt or 0) then
+      self.localRetryAt = now+1
+      local ok,result,detail = pcall(zBoxNative,"LocalOpen",self:Realm(),UnitName("player"),self.db.peer,self.db.key,self.db.role=="control" and 0 or 1)
+      self.localOpened = ok and result==1
+      self.localDetail = self.localOpened and "Local DLL IPC waiting for peer" or tostring(ok and detail or result)
+    end
+    if self.localOpened then
+      local ok,result,peer,detail = pcall(zBoxNative,"LocalInfo")
+      if ok and result==0 then return end -- Contention is transient, never a route change.
+      if ok and result==1 then
+        epoch = type(peer)=="string" and peer~="" and peer or nil
+        ready, self.localDetail = epoch~=nil,detail
+      else
+        self:CloseLocalTransport();self.localRetryAt=now+1
+        self.localDetail = "Local DLL IPC unavailable: " .. tostring(ok and detail or result)
+      end
+    end
+  elseif self.localOpened then self:CloseLocalTransport() end
+  if wasReady~=ready or (ready and previousEpoch~=epoch) then
+    self:Disconnect(ready and "Switching to local DLL communication" or "Local peer unavailable; reconnecting through addon messages")
+    self.lastHello = -10
+  end
+  self.localReady, self.localPeerEpoch = ready,epoch
+  if not ready then return end
+  for i=1,64 do
+    local ok,result,packet = pcall(zBoxNative,"LocalRead")
+    if not ok or result==-1 then self:Disconnect("Local receive failed");break end
+    if result~=1 then break end
+    self:Receive(self.prefix,packet,"LOCAL",self.db.peer)
+  end
+end
+
 function B:Encode(fields)
   local encoded = {}
   for i = 1, table.getn(fields) do
@@ -36,11 +82,12 @@ function B:Packets(kind, fields)
   local body = self:Encode(fields)
   if string.len(body) > 16000 then return nil end
   self.sendID = self.sendID + 1
-  local id, parts = self.sendID, math.max(1, math.ceil(string.len(body) / 160))
+  local chunkSize = self.localReady and 4096 or 160
+  local id, parts = self.sendID, math.max(1, math.ceil(string.len(body) / chunkSize))
   local packets = {}
   for i = 1, parts do
     packets[i] = "2~" .. self.db.key .. "~" .. self.session .. "~" .. id .. "~" .. i .. "~" .. parts ..
-      "~" .. kind .. "~" .. string.sub(body, (i - 1) * 160 + 1, i * 160)
+      "~" .. kind .. "~" .. string.sub(body, (i - 1) * chunkSize + 1, i * chunkSize)
   end
   return packets, id
 end
@@ -59,11 +106,22 @@ function B:SendNow(kind, fields)
   if not self:IsEnabled() or self.worldSuspended then return false end
   local packets = self:Packets(kind, fields)
   if not packets then return false end
-  for i = 1, table.getn(packets) do if not self:Transmit(packets[i]) then return false end end
+  local priority = kind=="CMD" and fields[1]=="STOP" and 2 or 1
+  for i = 1, table.getn(packets) do
+    local sent = self:Transmit(packets[i],priority)
+    if sent==nil and self.localReady and priority==2 then self.localStopPacket=packets[i];return true end
+    if not sent then return false end
+  end
   return true
 end
 
-function B:Transmit(packet)
+function B:Transmit(packet,priority)
+  if self.localReady then
+    local ok,result,detail = pcall(zBoxNative,"LocalSend",packet,priority or 0)
+    if ok and result==1 then return true end
+    if ok and result==0 then return nil end -- Retry a full/busy lane without dropping the frame.
+    self:Disconnect("Local send failed: " .. tostring(ok and detail or result));return false
+  end
   if self:Channel()=="WHISPER" then
     local ok, result, reason = pcall(zBoxNative,"Whisper",self.db.peer,packet)
     if ok and result==1 then return true end
@@ -75,23 +133,29 @@ function B:Transmit(packet)
 end
 
 function B:Pump(now, elapsed)
+  if self.localStopPacket then
+    if not self:Transmit(self.localStopPacket,2) then return end
+    self.localStopPacket=nil
+  end
   self.tokens = math.min(4, (self.tokens or 0) + elapsed * 16)
-  local function take(queue, field)
+  local function advance(queue, field)
     local index = B[field]
-    local packet = queue[index]
-    if not packet then return end
     B[field] = index + 1
     if B[field] > table.getn(queue) then
       if field == "highIndex" then B.queueHigh = {} else B.queueLow = {} end
       B[field] = 1
     end
-    return packet
   end
-  while self.tokens >= 1 do
-    local packet = take(self.queueHigh, "highIndex") or take(self.queueLow, "lowIndex")
+  local budget = self.localReady and 32 or math.floor(self.tokens)
+  for i=1,budget do
+    local high = self.queueHigh[self.highIndex]~=nil
+    local queue, field = high and self.queueHigh or self.queueLow, high and "highIndex" or "lowIndex"
+    local packet = queue[self[field]]
     if not packet then break end
-    if not self:Transmit(packet) then break end
-    self.tokens = self.tokens - 1
+    local sent = self:Transmit(packet,high and 1 or 0)
+    if not sent then break end
+    advance(queue,field)
+    if not self.localReady then self.tokens = self.tokens - 1 end
   end
 end
 
@@ -102,13 +166,14 @@ function B:Receive(prefix, message, channel, sender)
   -- names only party/raid/guild/battleground. Some client mods label WHISPER.
   if channel ~= expected and not (expected == "WHISPER" and channel == "UNKNOWN") then return end
   if self:Name(sender) ~= self:Name(self.db.peer) then return end
-  if type(message) ~= "string" or string.len(message) > 254 then return end
+  local localRoute = expected=="LOCAL"
+  if type(message) ~= "string" or string.len(message) > (localRoute and 4352 or 254) then return end
   local _, _, version, key, session, idText, partText, countText, kind, chunk =
     string.find(message, "^(%d+)~([^~]+)~([%w]+)~(%d+)~(%d+)~(%d+)~([A-Z]+)~(.*)$")
   if version ~= "2" or key ~= self.db.key or string.len(session or "") > 24 then return end
   local id, part, count = tonumber(idText), tonumber(partText), tonumber(countText)
-  if not id or id < 1 or id > 2147483647 or not count or count < 1 or count > 100 or
-     not part or part < 1 or part > count or string.len(chunk) > 160 then return end
+  if not id or id < 1 or id > 2147483647 or not count or count < 1 or count > (localRoute and 4 or 100) or
+     not part or part < 1 or part > count or string.len(chunk) > (localRoute and 4096 or 160) then return end
   local now = GetTime()
   if self.db.role == "agent" and kind == "HELLO" then
     if self.session ~= session then
@@ -123,11 +188,13 @@ function B:Receive(prefix, message, channel, sender)
     local active = 0
     for _, value in pairs(self.incoming) do active = active + 1 end
     if active >= 16 then return end
-    incoming = { parts = {}, count = count, kind = kind, at = now, received = 0 }
+    incoming = { parts = {}, count = count, kind = kind, at = now, received = 0, bytes = 0 }
     self.incoming[id] = incoming
   end
   if incoming.count ~= count or incoming.kind ~= kind then return end
   if not incoming.parts[part] then
+    incoming.bytes = incoming.bytes + string.len(chunk)
+    if incoming.bytes>16000 then self.incoming[id]=nil;return end
     incoming.parts[part], incoming.received = chunk, incoming.received + 1
   end
   if incoming.received ~= count then return end
@@ -196,6 +263,7 @@ function B:Message(kind, fields, id, now)
     self.lastReceive = now
     local pending = self.pending[tonumber(fields[1])]
     if pending then
+      self.lastRoundTrip = math.max(0,now-pending.at)
       self.pending[tonumber(fields[1])] = nil
       if pending.command == "MIRROR" and fields[2] ~= "1" then self:Command("STOP") end
       local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL") and
@@ -213,6 +281,7 @@ function B:Message(kind, fields, id, now)
 end
 
 function B:Tick(now, elapsed)
+  self:LocalTransportTick(now)
   if self.NPCGuardTick then self:NPCGuardTick(now) end
   if self.worldSuspended or not self:IsEnabled() then
     if self.connected then self:Disconnect("Pairing inactive or transport unavailable") end
@@ -222,7 +291,7 @@ function B:Tick(now, elapsed)
     self:Disconnect("Connection lost; movement stopped")
     self.lastHello = -10
   end
-  if self.db.role == "control" and not self.connected and now - self.lastHello >= 2 then
+  if self.db.role == "control" and not self.connected and now - self.lastHello >= (self.localReady and 0.25 or 2) then
     self.session = self.session or self:NewSession()
     self:Send("HELLO", { self:Realm(), self.version, self:GUID("player") }, true)
     self.lastHello = now
