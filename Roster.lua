@@ -135,7 +135,7 @@ function B:Initialize()
  end
 end
 local command=B.Command
-local broadcast={FOLLOW=true,PET=true,MOVETO=true,AXIS=true,AXES=true,JUMP=true,MIRROR=true,STOP=true,ASSIST=true}
+local broadcast={FOLLOW=true,PET=true,MOVETO=true,AXIS=true,AXES=true,JUMP=true,MIRROR=true,STOP=true,ASSIST=true,UNSTUCK=true}
 function B:Command(kind,fields)
  if self.roster and not self.rosterBackground and not self.rosterSending and broadcast[kind] then
   local any,detail=false,nil;self.rosterSending=true
@@ -147,6 +147,23 @@ function B:Command(kind,fields)
   return any,any and nil or detail
  end
  return command(self,kind,fields)
+end
+function B:UnstuckAll()
+ if not self.ready or self.worldSuspended then return false,"Player is not in the world" end
+ local sent,failed=0,0
+ if self.db.enabled and self.db.role=="control" and self.db.realm==self:Realm() then
+  -- Dispatch to all peers before the local recovery can trigger a loading screen.
+  for _,name in ipairs(self:FollowerNames()) do
+   local state=self:FollowerState(name)
+   if state and state.connected then
+    local ok=self:WithFollower(name,command,"UNSTUCK",{})
+    if ok then sent=sent+1 else failed=failed+1 end
+   end
+  end
+ end
+ local ok,reason=self:UnstuckPlayer()
+ if not ok then return false,reason.."; follower requests sent: "..sent end
+ return true,"Unstuck requested on this character and "..sent.." connected follower(s)"..(failed>0 and ("; could not reach "..failed) or "")
 end
 local receive=B.Receive
 function B:Receive(prefix,message,channel,sender)

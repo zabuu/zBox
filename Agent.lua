@@ -348,10 +348,26 @@ function B:Unequip(slot, expected)
   return false, "Make room in account 2's backpack first"
 end
 
+function B:UnstuckPlayer()
+  if not self.ready or self.worldSuspended or not UnitExists("player") then return false,"Player is not in the world" end
+  if type(Stuck)~="function" then return false,"The client's Stuck API is unavailable" end
+  self.mirrorPaused,self.heldInputs,self.heldMask,self.heldModifiers=true,{},0,{}
+  if self.UI then self.UI.held=nil end
+  self:StopMovement(nil,true)
+  self:Invoke("SpellStopCasting")
+  -- Fixed client API, equivalent to /script Stuck(); no received script is run.
+  local ok,reason=pcall(Stuck)
+  if not ok then return false,tostring(reason) end
+  return true,"Unstuck requested"
+end
+
 function B:Execute(fields)
   local command = fields[1]
   if command~="QUESTLINK" and command~="MIRROR" and command~="AXES" then self.questIntent=nil end
-  if command == "STOP" then
+  if command == "UNSTUCK" then
+    if table.getn(fields)~=1 then return false,"Unstuck takes no arguments" end
+    return self:UnstuckPlayer()
+  elseif command == "STOP" then
     local stopped, reason = self:StopMovement(nil, true)
     self:Invoke("SpellStopCasting")
     if SpellStopTargeting then self:Invoke("SpellStopTargeting") end

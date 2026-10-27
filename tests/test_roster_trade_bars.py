@@ -166,6 +166,9 @@ if znp.is_file():
     parent={nameplate=plate}
     for _,scale in ipairs({.55,.85,1,1.25}) do
      plate:SetScale(scale);zNameplates.UpdatePairedVitals({[parent]=true});assert(plate.pairedVitals:IsShown())
+     local expectedWidth=(60*scale+8)*.7
+     assert(math.abs(plate.pairedVitals.health:GetWidth()*plate.pairedVitals.health:GetEffectiveScale()-expectedWidth)<.00001)
+     assert(math.abs(plate.pairedVitals.power:GetWidth()*plate.pairedVitals.power:GetEffectiveScale()-expectedWidth)<.00001)
      assert(math.abs(plate.pairedVitals.health:GetHeight()*plate.pairedVitals.health:GetEffectiveScale()-2)<.00001)
      assert(math.abs(plate.pairedVitals.power:GetHeight()*plate.pairedVitals.power:GetEffectiveScale()-2)<.00001)
     end

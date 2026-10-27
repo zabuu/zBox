@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.9.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.9.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -288,6 +288,14 @@ function B:Command(command, fields)
     if self.UI then self.UI.held = nil end
   end
   table.insert(fields, 1, command)
+  if command == "UNSTUCK" then
+    self.mirrorPaused,self.heldInputs,self.heldMask,self.heldModifiers=true,{},0,{}
+    if self.UI then self.UI.held=nil end
+    -- Do not put recovery behind the normal action queue, or retry it later.
+    if not self:SendNow("CMD",fields) then return false,"Could not send Unstuck" end
+    self.pending[self.sendID]={at=GetTime(),command=command}
+    return true
+  end
   if command == "STOP" then
     self.mirrorPaused = true
     if not self:SendNow("CMD", fields) then return false, self.notice or "Could not send Stop" end
@@ -336,7 +344,11 @@ end
 function B:Slash(message)
   local _, _, command, rest = string.find(message or "", "^(%S*)%s*(.-)%s*$")
   command = string.lower(command or "")
-  if command == "control" or command == "allow" then
+  if command == "unstuck" then
+    if rest~="" then self:Notify("Use /unstuck or /zbox unstuck (no arguments)");return end
+    local ok,reason=self:UnstuckAll()
+    if reason then self:Notify(reason) end
+  elseif command == "control" or command == "allow" then
     local _, _, peer, key = string.find(rest, "^(%S+)%s+(%S+)$")
     local ok, reason = self:Configure(command == "control" and "control" or "agent", peer, key)
     if not ok then self:Notify(reason) end
@@ -402,6 +414,7 @@ function B:Slash(message)
     self:Print(self:Diagnostics())
     if self.connected and self.db.role == "control" then self:Send("DIAG", {}, true) end
   elseif command == "help" then
+    self:Print("/unstuck or /zbox unstuck = Stuck() on this character and every connected follower; pauses movement")
     self:Print("/zbox talk = interact/open account 2's NPC window; drag Talk onto your bars or bind it in Keys")
     self:Print("/zbox quests on|off = linked quest pickup/turn-in; /zbox awake on|off = linked background activity (account 2)")
     self:Print("On account 2: /zbox allow MainName sharedcode; party membership is not required with bridge 0.1.7.")
@@ -509,6 +522,8 @@ frame:SetScript("OnUpdate", function()
 end)
 SLASH_ZBOX1 = "/zbox"
 SlashCmdList["ZBOX"] = function(message) B:Slash(message) end
+SLASH_ZBOX_UNSTUCK1 = "/unstuck"
+SlashCmdList["ZBOX_UNSTUCK"] = function(message) B:Slash("unstuck "..(message or "")) end
 BINDING_HEADER_ZBOX = "zBox - second character"
 BINDING_NAME_ZBOX_TOGGLE = "Toggle control panel"
 BINDING_NAME_ZBOX_STOP = "Stop second character"

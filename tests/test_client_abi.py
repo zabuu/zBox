@@ -26,6 +26,15 @@ def image_bytes(address, size):
 def instructions(address, size):
     return [(i.mnemonic,i.op_str) for i in decoder.disasm(image_bytes(address,size),address)]
 
+# Stuck() is the fixed stock script API, not /gm (which pfUI maps to Help).
+# Its wrapper directly submits the client request without a binding-context gate.
+assert image_bytes(0x83F050,6)==b'Stuck\0'
+assert ('call','0x6e5a90') in instructions(0x489370,20)
+assert ('ret','') in instructions(0x489370,20)
+assert ('push','0x90') in instructions(0x6E5A90,54)
+assert ('call','0x6e4b60') in instructions(0x6E5A90,54)
+print('PASS: fixed Stuck() script API uses the normal client unstuck request without a binding-context gate')
+
 lookup=instructions(0x464870,30)
 assert ('mov','eax, dword ptr [ebp + 8]') in lookup
 assert ('mov','ecx, dword ptr [ebp + 0xc]') in lookup

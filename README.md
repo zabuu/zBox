@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.9.0 | Native bridge 0.1.10 | Windows x86**
+**Addon 0.9.1 | Native bridge 0.1.10 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -23,6 +23,18 @@ Movement, Follow/Pet orders, Mirror, click-to-move, Jump and STOP control all
 followers. Skills, bags, gear, NPCs, quests and trades use the selected follower.
 Each follower has an independent session, queues, caches and cooldown watches.
 Older bridges use whisper transport for a roster with several followers.
+
+### Unstuck all linked characters
+
+Type **`/unstuck`** (or `/zbox unstuck`) on the driver to invoke **`Stuck()`**,
+equivalent to `/script Stuck();`, on this character and every connected follower.
+This uses a fixed protocol action; script text and chat commands are never sent.
+Requests go out immediately, then local recovery runs. Mirror/held movement,
+follow, pet orders and casting are stopped so they do not interrupt recovery.
+Disconnected followers are skipped and do not receive a delayed request when
+they reconnect. Without a link, the command affects only the local character.
+Normal client/server unstuck restrictions still apply. Update/reload zBox on all
+clients; **the bridge DLL is unchanged**.
 
 ### Bags and trades
 
@@ -53,9 +65,9 @@ pfUI slots. Stock Blizzard bars continue to use the existing macro method.
 
 ### Companion addon integration
 
-Update **zNameplates to 2.2.0** for two 2-pixel bars under each connected follower's
-friendly name: green health and a resource-colored power bar, slightly wider
-than the name. Nameplate visibility follows your existing zNP settings. zBox
+Update **zNameplates to 2.2.1** for two 2-pixel bars under each connected follower's
+friendly name: green health and a resource-colored power bar, at 70% of the
+original (name width + 8 pixels) width. Nameplate visibility follows your existing zNP settings. zBox
 provides fresh authorized vitals; zNP owns drawing. Update **zDNumbers to 1.0.3**
 for pet damage anchoring across multiple followers; zDNumbers still owns numbers.
 Both integrations are optional.
@@ -582,6 +594,7 @@ python tests\test_feedback_damage.py
 python tests\test_companion_convenience.py
 python tests\test_mirror_stack.py
 python tests\test_roster_trade_bars.py
+python tests\test_unstuck.py
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_local_bank.ps1
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
