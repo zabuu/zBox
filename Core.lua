@@ -1,11 +1,11 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.9.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.9.2", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
   TurnLeftStart = true, TurnLeftStop = true, TurnRightStart = true, TurnRightStop = true,
   StrafeLeftStart = true, StrafeLeftStop = true, StrafeRightStart = true, StrafeRightStop = true }
-protectedInputs.StartAttack, protectedInputs.StopAttack, protectedInputs.CastSpellNoToggle = true, true, true
+protectedInputs.StartAttack, protectedInputs.StopAttack, protectedInputs.CastSpellNoToggle, protectedInputs.Stuck = true, true, true, true
 
 function B:Print(text)
   if DEFAULT_CHAT_FRAME then DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcczBox:|r " .. tostring(text)) end
@@ -99,7 +99,7 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8 or contract == 9) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8 or contract == 9 or contract == 10) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
@@ -110,6 +110,8 @@ function B:GetBridgeInfo()
       info.activity = contract >= 8
       info.multiLocal = contract >= 9
       info.trade = contract >= 9
+      -- Stuck does not depend on the passive jump observer's availability.
+      info.unstuck = contract >= 10 or version == "zBoxBridge 0.1.11"
     else
       info.label = "Bridge update required"
     end
@@ -153,6 +155,7 @@ function B:Diagnostics()
   report = report .. "; movement=" .. (self.lastMovementMethod or "none") .. "; pet=" .. (self.petState and self.petState.mode or "off")
   if self.lastGameError then report = report .. "; last game error=" .. self.lastGameError .. " @ " .. (self.lastGameErrorCall or "between zBox calls") end
   if self.lastRemoteError then report=report.."; last remote error="..self.lastRemoteError end
+  if self.lastUnstuckResult then report=report.."; unstuck="..self.lastUnstuckResult end
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
@@ -289,6 +292,11 @@ function B:Command(command, fields)
   end
   table.insert(fields, 1, command)
   if command == "UNSTUCK" then
+    local _,_,major,minor,patch=string.find(self.peerVersion or "","^(%d+)%.(%d+)%.(%d+)$")
+    major,minor,patch=tonumber(major),tonumber(minor),tonumber(patch)
+    if not major or (major==0 and (minor<9 or (minor==9 and patch<2))) then
+      return false,"Update zBox to 0.9.2 on this follower and reload its UI"
+    end
     self.mirrorPaused,self.heldInputs,self.heldMask,self.heldModifiers=true,{},0,{}
     if self.UI then self.UI.held=nil end
     -- Do not put recovery behind the normal action queue, or retry it later.

@@ -351,12 +351,18 @@ end
 function B:UnstuckPlayer()
   if not self.ready or self.worldSuspended or not UnitExists("player") then return false,"Player is not in the world" end
   if type(Stuck)~="function" then return false,"The client's Stuck API is unavailable" end
+  local native=self:GetBridgeInfo().unstuck
+  if self.db.role=="agent" and not native then
+    return false,"Follower Unstuck needs bridge 0.1.11; update the game-root DLL and fully restart this client"
+  end
   self.mirrorPaused,self.heldInputs,self.heldMask,self.heldModifiers=true,{},0,{}
   if self.UI then self.UI.held=nil end
   self:StopMovement(nil,true)
   self:Invoke("SpellStopCasting")
-  -- Fixed client API, equivalent to /script Stuck(); no received script is run.
-  local ok,reason=pcall(Stuck)
+  -- Stuck's deeper spell dispatcher checks protected input context. A direct
+  -- background call returns normally while doing nothing; pcall cannot detect it.
+  local ok,reason
+  if native then ok,reason=self:Invoke("Stuck") else ok,reason=pcall(Stuck) end
   if not ok then return false,tostring(reason) end
   return true,"Unstuck requested"
 end

@@ -4,12 +4,30 @@ from test_local_transport import LocalPair
 from test_zbox import call_count
 
 SETUP='''
-Stuck=function() log("Stuck",clock) end
+Stuck=function()
+ if not nativeStuckInput then blockedStuck=(blockedStuck or 0)+1;return end
+ log("Stuck",clock)
+end
+local previous=zBoxNative
+zBoxNative=function(command,...)
+ if command=="capabilities" then return 1,"zBoxBridge 0.1.11",10 end
+ if command=="Stuck" then
+  for i=1,table.getn(arg) do assert(arg[i]==nil) end
+  nativeStuckInput=true
+  local ok,why=pcall(Stuck)
+  nativeStuckInput=nil
+  return ok and 1 or 0,ok and "Requested" or why
+ end
+ return previous(command,unpack(arg))
+end
+zBox.bridgeInfo=nil
 SendChatMessage=function() error("Unstuck must not send chat text") end
 SlashCmdList.GM=function() error("Unstuck must not open the GM help frame") end
 '''
 t=Team()
 for lua in t.clients.values():lua.execute(SETUP)
+t.alt.execute('local ok=pcall(Stuck);assert(ok and blockedStuck==1)')
+assert call_count(t.alt,'Stuck')==0  # The previous direct pcall silently succeeded.
 t.main.execute('assert(zBox:SetMirrorMode(true));axes.MoveForward=true;facing=1.4')
 t.advance(.3)
 t.main.execute('assert(zBox:SelectFollower("Beta"));assert(SLASH_ZBOX_UNSTUCK1=="/unstuck");SlashCmdList.ZBOX_UNSTUCK("")')
@@ -21,6 +39,7 @@ t.advance(.4)
 for lua in t.clients.values():
     assert call_count(lua,'Stuck')==1
     lua.execute('assert(not axes.MoveForward);assert(not zBox.following and not zBox.pendingCast and not zBox.petState)')
+    lua.execute('assert(not nativeStuckInput);assert(string.find(zBox.lastInvoke,"Stuck:",1,true))')
 t.main.execute('assert(zBox.db.peer=="Beta" and zBox.mirrorPaused and zBox.heldMask==0)')
 # Replayed commands, another sender and extra script text never run again.
 packet=next(p for src,dst,p in t.history if src=='Main' and dst=='Alt' and '~CMD~UNSTUCK' in p)
@@ -55,3 +74,36 @@ assert call_count(p.main,'Stuck')==1 and call_count(p.alt,'Stuck')==1
 p.alt.execute('Stuck=nil;local ok,why=zBox:Execute({"UNSTUCK"});assert(not ok and string.find(why,"unavailable"))')
 p.alt.execute('Stuck=function() error("fixture failure") end;local ok,why=zBox:Execute({"UNSTUCK"});assert(not ok and string.find(why,"fixture failure"))')
 print('PASS: local IPC recovery reaches both clients without draining background queues; missing/failed Stuck APIs fail clearly with no alternative chat/eval path')
+
+# A loaded old DLL must fail explicitly rather than acknowledge a silent no-op.
+t=Team()
+for lua in t.clients.values():lua.execute(SETUP)
+t.alt.execute('''
+local bridge=zBoxNative
+zBoxNative=function(cmd,...)
+ if cmd=="capabilities" then return 1,"zBoxBridge 0.1.10",9 end
+ return bridge(cmd,unpack(arg))
+end
+zBox.bridgeInfo=nil
+''')
+t.main.execute('SlashCmdList.ZBOX_UNSTUCK("")');t.advance(.5)
+assert call_count(t.main,'Stuck')==1 and call_count(t.beta,'Stuck')==1 and call_count(t.alt,'Stuck')==0
+t.main.execute('assert(string.find(zBox.lastUnstuckResult,"bridge 0.1.11",1,true));assert(zBox:FollowerState("Beta").lastUnstuckResult=="Requested through native input")')
+t.alt.execute('''
+local bridge=zBoxNative
+zBoxNative=function(cmd,...)
+ if cmd=="capabilities" then return 1,"zBoxBridge 0.1.11",3 end
+ return bridge(cmd,unpack(arg))
+end
+zBox.bridgeInfo=nil;assert(zBox:GetBridgeInfo().unstuck and not zBox:GetBridgeInfo().jumpEvents)
+assert(zBox:Execute({"UNSTUCK"}))
+''')
+assert call_count(t.alt,'Stuck')==1
+print('PASS: simulated background Stuck silently fails outside native input; scoped calls work on all followers, old DLLs report the required repair, and jump-observer failure does not disable Unstuck')
+
+t=Team()
+for lua in t.clients.values():lua.execute(SETUP)
+t.main.execute('zBox.peerVersion="0.9.1";SlashCmdList.ZBOX_UNSTUCK("")');t.advance(.5)
+assert call_count(t.main,'Stuck')==1 and call_count(t.alt,'Stuck')==0 and call_count(t.beta,'Stuck')==1
+assert not any(src=='Main' and dst=='Alt' and '~CMD~UNSTUCK' in packet for src,dst,packet in t.history)
+print('PASS: a follower still running the direct-call addon is rejected with reload instructions, rather than reporting a false native success')

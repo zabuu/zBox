@@ -39,6 +39,13 @@ int __fastcall fixture(void *, int arguments, int results, int handler) {
   depth = 99;
   return 0;
 }
+int unstuckCalls=0;
+int __fastcall unstuckFixture(void *,int arguments,int results,int handler) {
+  assert(arguments==0 && results==0 && handler==0);
+  if (!bindingExecuting) return 0; // The client silently declines background Stuck.
+  assert(context==0 && depth==8 && bindingExecuting==1 && busy==1);
+  context=456;++unstuckCalls;return 0;
+}
 int main(int argc, char **argv) {
   uint32_t activity=123;
   assert(!ZBoxRefreshActivity(false,&activity,456) && activity==123);
@@ -57,6 +64,11 @@ int main(int argc, char **argv) {
   mode = 0; bindingExecuting = 7;
   assert(ZBoxScopedInvoke(nullptr, fixture, 2, &context, &depth, &bindingExecuting, &busy) == 0);
   assert(bindingExecuting == 7 && context == 123 && depth == 7 && busy == 0);
+  bindingExecuting=0;
+  assert(unstuckFixture(nullptr,0,0,0)==0 && unstuckCalls==0);
+  assert(ZBoxScopedInvoke(nullptr,unstuckFixture,0,&context,&depth,&bindingExecuting,&busy)==0);
+  assert(unstuckCalls==1 && bindingExecuting==0 && context==123 && depth==7 && busy==0);
+  bindingExecuting=7;
   volatile LONG jumps = 0;
   auto sender = reinterpret_cast<ZBoxMovementSender>(&movementFixture);
   expectedOpcode = 0xDA;
@@ -101,6 +113,7 @@ int main(int argc, char **argv) {
     FreeLibrary(dll);
   }
   std::puts("PASS: full binding input context survives Lua restamping; context/depth/executing restored after success, Lua error, SEH, reentry and nested state; unsupported executable rejected");
+  std::puts("PASS: zero-argument Unstuck silently declines outside binding input and executes once through the native scope, restoring every input field");
   std::puts("PASS: native movement observer preserves thiscall arguments, return values and execution context; only completed jump sends increment the counter, including wrap");
   std::puts("PASS: native move submission preserves XYZ layout, fixed ground verb/zero GUID, thiscall arguments, boolean return and input context");
   std::puts("PASS: bounded caller-owned addon whisper envelope, fixed opcode/type/language/prefix, peer validation, printable packet/length checks and no engine allocation");

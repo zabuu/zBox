@@ -156,8 +156,8 @@ function B:UnstuckAll()
   for _,name in ipairs(self:FollowerNames()) do
    local state=self:FollowerState(name)
    if state and state.connected then
-    local ok=self:WithFollower(name,command,"UNSTUCK",{})
-    if ok then sent=sent+1 else failed=failed+1 end
+    local ok,why=self:WithFollower(name,command,"UNSTUCK",{})
+    if ok then sent=sent+1 else failed=failed+1;self:Print("Unstuck on "..name..": "..tostring(why)) end
    end
   end
  end

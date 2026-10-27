@@ -273,6 +273,10 @@ function B:Message(kind, fields, id, now)
     if pending then
       self.lastRoundTrip = math.max(0,now-pending.at)
       self.pending[tonumber(fields[1])] = nil
+      if pending.command=="UNSTUCK" then
+        self.lastUnstuckResult=fields[2]=="1" and "Requested through native input" or tostring(fields[3])
+        if fields[2]~="1" then self:Print("Unstuck on "..self.db.peer..": "..tostring(fields[3])) end
+      end
       if pending.command == "MIRROR" and fields[2] ~= "1" then self:Command("STOP") end
       local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL") and
         fields[2] == "1" and self.lastCastFeedbackAt and self.lastCastFeedbackAt >= pending.at and now - self.lastCastFeedbackAt < 2

@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.9.1 | Native bridge 0.1.10 | Windows x86**
+**Addon 0.9.2 | Native bridge 0.1.11 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -33,8 +33,12 @@ Requests go out immediately, then local recovery runs. Mirror/held movement,
 follow, pet orders and casting are stopped so they do not interrupt recovery.
 Disconnected followers are skipped and do not receive a delayed request when
 they reconnect. Without a link, the command affects only the local character.
-Normal client/server unstuck restrictions still apply. Update/reload zBox on all
-clients; **the bridge DLL is unchanged**.
+Normal client/server unstuck restrictions still apply. **Follower Unstuck requires bridge 0.1.11.** The client checks protected input
+inside its spell dispatcher: a direct background `Stuck()` call can return
+without doing anything. Update zBox on every client, close all clients sharing
+the game folder, update the game-root bridge DLL through Mods > Add DLL, Apply,
+and fully restart. `/reload` alone cannot load the DLL. Older follower bridges
+report a required-update error rather than acknowledging a silent no-op.
 
 ### Bags and trades
 
@@ -566,7 +570,7 @@ this player-source adapter.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.10**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.11**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The

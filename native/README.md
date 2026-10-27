@@ -1,6 +1,6 @@
 # Native bridge
 
-Version 0.1.10, capability contract 9, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.11, capability contract 10, for the guarded WoW 1.12.1.5875 x86 image.
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.
@@ -16,6 +16,14 @@ The fixed allowlist adds InitiateTrade(unit), ClickTradeButton(1..6), and
 argument-free AcceptTrade, CancelTradeAccept, CloseTrade and DeleteCursorItem.
 Lua validates live partners, complete offer fingerprints, bag keys/counts,
 cursor ownership and one-use destruction confirmations before these calls.
+
+Contract 10 adds argument-free `Stuck` to the fixed protected-input allowlist.
+The stock API at `0x489370` calls `0x6E5A90`, then the spell dispatcher at
+`0x6E4B60`, which calls permission helper `0x494A50`. A background Lua call can
+return normally without performing recovery. Stuck therefore runs through
+`ZBoxScopedInvoke`, preserving/restoring the full binding context just like
+casting. Non-nil arguments are rejected. If jump observation fails, version
+0.1.11 still supports this independent operation under the fallback contract.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped

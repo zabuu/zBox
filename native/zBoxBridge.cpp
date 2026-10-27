@@ -87,6 +87,10 @@ int validate(void *L, const char *name) {
     "StrafeRightStart", "StrafeRightStop", "Jump", "SpellStopCasting", "SpellStopTargeting", "AttackTarget", "ClearTarget",
     "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer", "StartAttack", "StopAttack", "AcceptTrade", "CancelTradeAccept", "CloseTrade", "DeleteCursorItem" };
   for (const char *allowed : noArgs) if (!std::strcmp(name, allowed)) return 0;
+  if (!std::strcmp(name,"Stuck")) {
+    for (int i=2;i<=at<Top>(0x006F3070)(L);++i) if (type(L,i)!=0) return -1;
+    return 0;
+  }
   if (!std::strcmp(name, "TargetUnit") || !std::strcmp(name, "FollowUnit") || !std::strcmp(name, "AssistUnit") || !std::strcmp(name, "InitiateTrade"))
     return unit(L, 2) ? 1 : -1;
   if (!std::strcmp(name, "ClickTradeButton")) return number(L,2,1,6) ? 1 : -1;
@@ -240,15 +244,15 @@ bool whisper(const char *peer, const char *frame) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.10");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.11");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.10");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 9 : 3);
+    response(L, true, "zBoxBridge 0.1.11");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 10 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.10; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.11; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name,"RefreshActivity")) {

@@ -27,13 +27,16 @@ def instructions(address, size):
     return [(i.mnemonic,i.op_str) for i in decoder.disasm(image_bytes(address,size),address)]
 
 # Stuck() is the fixed stock script API, not /gm (which pfUI maps to Help).
-# Its wrapper directly submits the client request without a binding-context gate.
+# Its wrapper reaches the spell dispatcher, which DOES check protected input.
 assert image_bytes(0x83F050,6)==b'Stuck\0'
 assert ('call','0x6e5a90') in instructions(0x489370,20)
 assert ('ret','') in instructions(0x489370,20)
 assert ('push','0x90') in instructions(0x6E5A90,54)
 assert ('call','0x6e4b60') in instructions(0x6E5A90,54)
-print('PASS: fixed Stuck() script API uses the normal client unstuck request without a binding-context gate')
+assert ('mov','ecx, 2') in instructions(0x6E4BBC,18)
+assert ('call','0x494a50') in instructions(0x6E4BBC,18)
+assert ('je','0x6e506e') in instructions(0x6E4BBC,24)
+print('PASS: fixed Stuck() API reaches the spell dispatcher protected-input gate, so follower recovery requires the scoped native call')
 
 lookup=instructions(0x464870,30)
 assert ('mov','eax, dword ptr [ebp + 8]') in lookup
