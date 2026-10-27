@@ -13,7 +13,14 @@ local function plain(value,limit)
   return type(value)=="string" and string.len(value)<=limit and not string.find(value,"[%c|]")
 end
 
-function B:DamageSource()
+function B:DamageSource(guid)
+  if guid and self.db.role=="control" and self.db.enabled and not self.worldSuspended then
+    for _,name in ipairs(self:FollowerNames()) do
+      local state=self:FollowerState(name)
+      if state and state.connected and state.peerGUID==guid then return guid end
+    end
+    return
+  end
   if self.connected and self.db.role=="control" then return self.peerGUID end
 end
 
@@ -24,7 +31,7 @@ function B:InstallDamageBridge()
     self.damageBridge=nil;return
   end
   self.damageBridge=z
-  z.SetPairedDamageSource(function() return B:DamageSource() end)
+  z.SetPairedDamageSource(function(guid) return B:DamageSource(guid) end)
   z.SetOutgoingDamageObserver(function(e) B:RelayDamage(e) end,function() return B.connected and B.db.role=="agent" end)
 end
 

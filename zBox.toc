@@ -1,10 +1,10 @@
 ## Interface: 11200
 ## Title: |cff33ffccz|rBox
-## Notes: Paired two-client control panel for a private WoW 1.12.1 test server.
+## Notes: Driver and follower control panel for a private WoW 1.12.1 test server.
 ## Author: zabuu
-## Version: 0.8.1
+## Version: 0.9.0
 ## SavedVariablesPerCharacter: zBoxDB
-## OptionalDeps: SuperAPI, SuperMacro, _LazyPig, z_DNumbers, pfUI, pfQuest
+## OptionalDeps: SuperAPI, SuperMacro, _LazyPig, z_DNumbers, pfUI, pfQuest, z_Nameplates
 Core.lua
 NPCGuard.lua
 Protocol.lua
@@ -25,3 +25,7 @@ Agent.lua
 UI.lua
 Views.lua
 NPCWindow.lua
+Trade.lua
+FreeBars.lua
+Vitals.lua
+Roster.lua

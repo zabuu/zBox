@@ -1,25 +1,64 @@
 # zBox
 
-A compact control panel for a second **WoW 1.12.1.5875** character on your own
+A compact control panel for additional **WoW 1.12.1.5875** characters on your own
 private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.8.1 | Native bridge 0.1.9 | Windows x86**
+**Addon 0.9.0 | Native bridge 0.1.10 | Windows x86**
 
-Updating from 0.8.0: update the addon on both characters and `/reload` both.
-Mirror mode adds the **Stack ON/OFF** toggle. The bridge DLL is unchanged.
+Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
+trade/item destruction and multiple simultaneous local DLL connections.** Close
+all clients sharing a game folder, add the updated bundled DLL through the
+launcher's **Mods > Add DLL**, Apply, then restart. `/reload` cannot load a new
+DLL. Different computers continue to pair through code-based addon whispers.
 
-Updating from 0.7.x: update zBox on both characters. The new addon adds direct
-NPC controls, linked quest pickup/turn-in and shared pfQuest tooltip progress.
-**Bridge 0.1.9 is required for preventing background AFK.** Close both clients,
-copy the updated bundled DLL through Mods > Add DLL, Apply, then restart.
-The other changes work with bridge 0.1.8 after `/reload`. zDNumbers is unchanged.
+### Multiple followers
 
-Update the addon and **game-root bridge DLL on both computers/client folders**,
-then fully restart both clients. Bridge 0.1.8+ adds automatic same-computer DLL
-communication, bypassing addon whispers locally; `/reload` alone cannot load it.
-Different computers keep the existing code-based addon whisper transport.
+In Setup, use **+** to add follower names (up to 16), enter one shared code and
+press **Control** on the driver. Each follower enters only the driver's name and
+the same code, then presses **Allow**. No party is required. Click the character
+name in the dock to select the next follower; hover it to see connection status.
+Movement, Follow/Pet orders, Mirror, click-to-move, Jump and STOP control all
+followers. Skills, bags, gear, NPCs, quests and trades use the selected follower.
+Each follower has an independent session, queues, caches and cooldown watches.
+Older bridges use whisper transport for a roster with several followers.
+
+### Bags and trades
+
+Right-click a bag item for **Use / Equip**, **Trade** or **Destroy...**. Trade uses
+the driver's friendly player target, or the driver when no valid other player
+is selected. The recipient must be loaded and within 10 yards of the follower;
+the normal client/server trade rules still apply. The whole selected stack is
+placed in the first empty traded slot. An existing trade with someone else is
+never replaced. Destroy opens a 20-second confirmation naming the character,
+item and stack count, then rechecks the exact item/slot/count on the follower.
+
+When your normal trade window is trading a connected follower, **Accept
+follower** requests acceptance on that character. It appears only for that
+specific connection. Changes to either offer invalidate stale requests. A
+follower trading someone else opens an independent, class-bordered preview
+with both offers, money, acceptance state and Accept/Cancel controls.
+
+### Remote skills without macro slots
+
+With **pfUI bars**, drag a follower's skill from Actions or Spellbook to an
+**empty** bar slot. It uses no macro slots, supports that bar's existing bindings,
+and shows remote cooldowns. It stays assigned to its original follower when you
+select another. Right-click/Alt-click targets the skill's owner; Shift-drag moves
+a slot and Shift-right-click removes it. Escape cancels a drag. A native local
+action placed in that slot takes priority and clears the remote assignment.
+`/zbox bars macro` restores macro dragging; `/zbox bars direct` selects direct
+pfUI slots. Stock Blizzard bars continue to use the existing macro method.
+
+### Companion addon integration
+
+Update **zNameplates to 2.2.0** for two 2-pixel bars under each connected follower's
+friendly name: green health and a resource-colored power bar, slightly wider
+than the name. Nameplate visibility follows your existing zNP settings. zBox
+provides fresh authorized vitals; zNP owns drawing. Update **zDNumbers to 1.0.3**
+for pet damage anchoring across multiple followers; zDNumbers still owns numbers.
+Both integrations are optional.
 
 ## Install with OctoWoW Launcher's addon manager
 
@@ -64,7 +103,8 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-This release needs bridge **0.1.9 on account 2** for background activity.
+This release needs bridge **0.1.10** for trade/item controls and multi-peer local IPC.
+Bridge 0.1.9 supports background activity.
 Bridge 0.1.8 on both clients supports local DLL communication.
 Bridge 0.1.7 supports pairing without a party through addon whispers.
 Bridge 0.1.6 supports native click-to-move and Pet controls while grouped.
@@ -514,7 +554,7 @@ this player-source adapter.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.9**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.10**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -541,6 +581,8 @@ python tests\test_local_transport.py
 python tests\test_feedback_damage.py
 python tests\test_companion_convenience.py
 python tests\test_mirror_stack.py
+python tests\test_roster_trade_bars.py
+powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_local_bank.ps1
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1

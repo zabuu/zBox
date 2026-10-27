@@ -10,7 +10,7 @@
 #include "MovementObserver.h"
 #include "NativeMove.h"
 #include "NativeWhisper.h"
-#include "LocalIPC.h"
+#include "LocalBank.h"
 #include "Activity.h"
 
 namespace {
@@ -35,7 +35,8 @@ volatile LONG jumpObserverReady = 0, jumpObserverStatus = -1;
 unsigned long calls = 0;
 char lastCommand[48] = "none";
 int lastResult = -1;
-ZBoxIPC::Endpoint localIPC;
+ZBoxIPC::Bank localBank;
+#define localIPC (localBank.Current())
 
 int __fastcall movementHook(uintptr_t mover, void *, uint32_t timestamp,
                            uint32_t opcode, float value, uint32_t extra) {
@@ -84,10 +85,11 @@ int validate(void *L, const char *name) {
   const char *noArgs[] = { "MoveForwardStart", "MoveForwardStop", "MoveBackwardStart", "MoveBackwardStop",
     "TurnLeftStart", "TurnLeftStop", "TurnRightStart", "TurnRightStop", "StrafeLeftStart", "StrafeLeftStop",
     "StrafeRightStart", "StrafeRightStop", "Jump", "SpellStopCasting", "SpellStopTargeting", "AttackTarget", "ClearTarget",
-    "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer", "StartAttack", "StopAttack" };
+    "AcceptQuest", "CompleteQuest", "CloseQuest", "CloseGossip", "CloseMerchant", "CloseTrainer", "StartAttack", "StopAttack", "AcceptTrade", "CancelTradeAccept", "CloseTrade", "DeleteCursorItem" };
   for (const char *allowed : noArgs) if (!std::strcmp(name, allowed)) return 0;
-  if (!std::strcmp(name, "TargetUnit") || !std::strcmp(name, "FollowUnit") || !std::strcmp(name, "AssistUnit"))
+  if (!std::strcmp(name, "TargetUnit") || !std::strcmp(name, "FollowUnit") || !std::strcmp(name, "AssistUnit") || !std::strcmp(name, "InitiateTrade"))
     return unit(L, 2) ? 1 : -1;
+  if (!std::strcmp(name, "ClickTradeButton")) return number(L,2,1,6) ? 1 : -1;
   if (!std::strcmp(name, "UseAction"))
     return number(L, 2, 1, 120) && number(L, 3, 0, 0) &&
       (type(L, 4) == 0 || number(L, 4, 1, 1)) ? 3 : -1;
@@ -238,15 +240,15 @@ bool whisper(const char *peer, const char *frame) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.9");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.10");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.9");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 8 : 3);
+    response(L, true, "zBoxBridge 0.1.10");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 9 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.9; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.10; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name,"RefreshActivity")) {
@@ -273,9 +275,12 @@ int __fastcall bridge(void *L) {
     // Transport does not replace the last game-input diagnostic.
     return response(L,result,result ? "Addon whisper requested" : "Addon whisper rejected");
   }
+  if (!std::strcmp(name,"LocalSelect")) return response(L,type(L,2)==4 && localBank.Select(str(L,2)),"Local peer selected");
+  if (!std::strcmp(name,"LocalCloseAll")) { localBank.CloseAll();return response(L,true,"Local channels retired"); }
   if (!std::strcmp(name,"LocalOpen")) {
     for (int i=2;i<=5;++i) if (type(L,i)!=4) return response(L,false,"Expected local pairing identity");
     if (!number(L,6,0,1)) return response(L,false,"Expected control/agent role");
+    if (!localBank.Select(str(L,4))) return response(L,false,"Too many local peers or invalid name");
     const int result=localIPC.Open(str(L,2),str(L,3),str(L,4),str(L,5),static_cast<int>(at<ToNumber>(0x006F3620)(L,6)));
     at<PushNumber>(0x006F3810)(L,result);at<PushString>(0x006F3890)(L,localIPC.Error());return 2;
   }

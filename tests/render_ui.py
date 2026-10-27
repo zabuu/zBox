@@ -95,6 +95,9 @@ def paint(frame):
     box = tuple(round(n * SCALE) for n in (x, y, x+w, y+h))
     if frame.backdrop:
         draw.rounded_rectangle(box, radius=3*SCALE, fill=color(frame.background, (15, 23, 28)), outline=(44, 65, 71), width=SCALE)
+    if frame.kind in {"EditBox", "Button"} and frame.template and frame.text:
+        draw.rounded_rectangle(box,radius=3*SCALE,fill=(23,32,38),outline=(57,77,82),width=SCALE)
+        draw.text((box[0]+7*SCALE,box[1]+4*SCALE),str(frame.text),font=font(10),fill=(223,213,175))
     if frame.kind == "Texture":
         if frame.texture and "UI-QuestGreeting-TopLeft" in str(frame.texture) and (HERE / "build/quest-bg.blp").exists():
             paper = Image.open(HERE / "build/quest-bg.blp").convert("RGB")
@@ -225,3 +228,20 @@ lua.execute('zBox.UI:Minimize()')
 rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
 mx,my,mw,mh=rect(lua.globals().zBox.UI.restoreButton)
 scaled_crop(mx,my,mw,mh).save(out/'minimized-preview.png')
+
+# Production roster and trade widgets; icons/dialogue skins are placeholders.
+lua.execute('''
+zBox.UI:Restore();zBox.UI:ShowSetup();zBox.UI:SetFollowerRows({"Zablink","Fridgey","Zabmage"});zBox.UI.npcWindow:Hide()
+''')
+rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+sx,sy,sw,sh=rect(lua.globals().zBox.UI.setup)
+crop(canvas,sx,sy,sw,sh).resize((466,round(sh+16)),Image.Resampling.LANCZOS).save(out/'roster-setup-preview.png')
+lua.execute('''
+zBox.UI.setup:Hide();zBox:CreateTradePreview()
+zBox.cache.trade={fields={"trade","preview","0x0000000000000004","Fridgey",12345,5000,"0","1","","preview"},rows={},at=GetTime()}
+for i=1,14 do zBox.cache.trade.rows[i]={i<=7 and "1" or "2",tostring((i-1)%7+1),i==1 and "Runecloth" or (i==8 and "Greater Healing Potion" or ""),"ItemIcon",i==1 and "20" or "1","",""} end
+zBox:TradeTick(GetTime())
+''')
+rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+tx,ty,tw,th=rect(lua.globals().zBox.tradeUI)
+crop(canvas,tx,ty,tw,th).resize((386,426),Image.Resampling.LANCZOS).save(out/'trade-preview.png')

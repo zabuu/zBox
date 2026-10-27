@@ -3,12 +3,12 @@ local function finite(value, maximum)
   return type(value) == "number" and value == value and value >= 0 and value <= maximum
 end
 
-function B:MacroProxy(index)
+function B:MacroProxy(index,anyPeer)
   if not GetMacroInfo or not index then return end
   local _, _, body = GetMacroInfo(index)
   local _, _, id = string.find(body or "", '^/script zBox:UseProxy%("(%d+)"%)%s*$')
   local proxy = id and self.db.proxies and self.db.proxies[id]
-  if proxy and proxy.realm == self:Realm() and self:Name(proxy.peer) == self:Name(self.db.peer) and
+  if proxy and proxy.realm == self:Realm() and (anyPeer or self:Name(proxy.peer) == self:Name(self.db.peer)) and
      (proxy.command == "ACTION" or proxy.command == "SPELL") then return id, proxy end
 end
 
@@ -22,6 +22,14 @@ function B:SyncCooldownWatches(now)
       table.insert(rows, self:Encode({id,proxy.command,proxy.slot,proxy.stamp}))
     end
   end
+  for _,id in pairs(self.db.barSlots or {}) do
+    local proxy=self.db.proxies and self.db.proxies[id]
+    if proxy and not watches[id] and proxy.realm==self:Realm() and self:Name(proxy.peer)==self:Name(self.db.peer) then
+      watches[id]={command=proxy.command,slot=proxy.slot,stamp=proxy.stamp}
+      table.insert(rows,self:Encode({id,proxy.command,proxy.slot,proxy.stamp}))
+    end
+  end
+  table.sort(rows)
   local payload = table.concat(rows, "\n")
   local changed = payload ~= self.cooldownWatchPayload
   if not changed and now-(self.lastWatchAt or -10)<5 then return end
@@ -37,7 +45,7 @@ function B:AcceptCooldownWatches(fields, id)
   if table.getn(fields) ~= 2 or not string.find(fields[1], "^%w+$") or string.len(fields[1])>32 or
      id <= (self.lastWatchID or 0) then return end
   local rows = fields[2] == "" and {} or self.Split(fields[2], "\n")
-  if table.getn(rows)>36 then return end
+  if table.getn(rows)>156 then return end
   local watches = {}
   for _, encoded in ipairs(rows) do
     local row = self:Decode(encoded)
@@ -82,7 +90,7 @@ function B:AcceptProxyCooldowns(fields, id)
   if table.getn(fields)~=3 or fields[2]~=self.cooldownWatchToken or not self.Integer(id,1,2147483647) or
      id <= (self.lastProxyCooldownID or 0) then return end
   local rows = fields[3]=="" and {} or self.Split(fields[3],"\n")
-  if table.getn(rows)>36 then return end
+  if table.getn(rows)>156 then return end
   local cache, now = {}, GetTime()
   for _, encoded in ipairs(rows) do
     local row = self:Decode(encoded)
@@ -148,10 +156,13 @@ function B:PaintMacroCooldowns(now)
       local slot = self:CooldownButtonSlot(button,source)
       local kind, macro
       if slot and GetActionInfo then kind,macro=GetActionInfo(slot) end
-      if kind=="macro" then id=self:MacroProxy(macro)
-      elseif slot and GetActionText and GetMacroIndexByName then id=self:MacroProxy(GetMacroIndexByName(GetActionText(slot) or "")) end
+      if kind=="macro" then id=self:MacroProxy(macro,true)
+      elseif slot and GetActionText and GetMacroIndexByName then id=self:MacroProxy(GetMacroIndexByName(GetActionText(slot) or ""),true) end
+      if not id and source.pf and slot and not HasAction(slot) then id=self.db.barSlots and self.db.barSlots[slot] end
     end
-    local cd = id and self.cache.proxyCooldowns and self.cache.proxyCooldowns[id]
+    local proxy=id and self.db.proxies and self.db.proxies[id]
+    local owner=proxy and self.FollowerState and self:FollowerState(proxy.peer) or self
+    local cd = id and owner and owner.connected and owner.cache.proxyCooldowns and owner.cache.proxyCooldowns[id]
     local remaining = cd and cd.endsAt-now or 0
     if cd and cd.valid and now-cd.at<=5 and remaining>0.05 then
       local frame = self:CooldownOverlay(button)
@@ -167,14 +178,14 @@ function B:PaintMacroCooldowns(now)
 end
 
 function B:MacroCooldownTick(now)
-  if not self.connected or self.db.role~="control" then return end
-  if now>=(self.nextWatchScan or 0) then self.nextWatchScan=now+1; self:SyncCooldownWatches(now) end
+  if self.db.role~="control" then return end
+  if self.connected and now>=(self.nextWatchScan or 0) then self.nextWatchScan=now+1; self:SyncCooldownWatches(now) end
   if now>=(self.nextCooldownButtons or 0) then self.nextCooldownButtons=now+0.5; self:FindCooldownButtons() end
   if now>=(self.nextCooldownPaint or 0) then self.nextCooldownPaint=now+0.1; self:PaintMacroCooldowns(now) end
 end
 
 function B:ResetMacroCooldowns()
-  for button in pairs(self.cooldownButtons or {}) do if button.zBoxCooldown then button.zBoxCooldown:Hide() end end
+  for button in pairs(self.cooldownButtons or {}) do if not self.rosterBackground and button.zBoxCooldown then button.zBoxCooldown:Hide() end end
   self.cooldownWatchToken, self.cooldownWatchPayload, self.cooldownWatches, self.lastWatchAt = nil,nil,nil,nil
   self.agentCooldownToken, self.agentCooldownWatches, self.lastWatchID, self.lastProxyCooldownID = nil,nil,nil,nil
   self.agentCooldownSignature, self.lastAgentCooldownAt, self.nextWatchScan = nil,nil,nil

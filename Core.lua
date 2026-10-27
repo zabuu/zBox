@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.8.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.9.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -99,7 +99,7 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8 or contract == 9) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
@@ -108,6 +108,8 @@ function B:GetBridgeInfo()
       info.directWhisper = contract >= 6
       info.localIPC = contract >= 7
       info.activity = contract >= 8
+      info.multiLocal = contract >= 9
+      info.trade = contract >= 9
     else
       info.label = "Bridge update required"
     end

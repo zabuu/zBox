@@ -184,6 +184,15 @@ function U:Create()
   self.miniTalkButton:SetPoint("LEFT",self.restoreButton,"RIGHT",3,0)
   self.miniTalkButton:SetFrameStrata("DIALOG");self.miniTalkButton:SetClampedToScreen(true)
   self:EnableControlDrag(self.miniTalkButton,"talk");self.miniTalkButton:Hide()
+  self.followerSelector=CreateFrame("Button",nil,f)
+  self.followerSelector:SetWidth(205);self.followerSelector:SetHeight(20);self.followerSelector:SetPoint("TOPLEFT",f,"TOPLEFT",52,-3)
+  self.followerSelector:SetScript("OnClick",function() B:CycleFollower() end)
+  self.followerSelector:SetScript("OnEnter",function()
+    GameTooltip:SetOwner(this,"ANCHOR_TOP");GameTooltip:SetText("Selected follower: "..(B.db.peer or "none"))
+    for _,name in ipairs(B:FollowerNames()) do local state=B:FollowerState(name);GameTooltip:AddLine(name..(state and state.connected and " - Connected" or " - Connecting"),.6,.85,.85) end
+    GameTooltip:AddLine("Click to select the next follower. Movement controls all followers.",1,.82,0,true);GameTooltip:Show()
+  end)
+  self.followerSelector:SetScript("OnLeave",function() GameTooltip:Hide() end)
   self.health = label(f, "Account 2 is not connected", 9, 12, -28, 252)
   self.power = label(f, "", 9, 416, -28, 68)
   self.power:SetJustifyH("RIGHT")
@@ -342,6 +351,7 @@ function U:CreateCell(index, parent, dock)
   cell:SetScript("OnDragStart", function() U:Drag(this) end)
   cell:SetScript("OnDragStop", function()
     this.dragging, this.ignoreClickUntil = nil, GetTime() + 0.4
+    if B.FinishFreeDrag then B:FinishFreeDrag() end
   end)
   cell.icon = cell:CreateTexture(nil, "ARTWORK")
   cell.icon:SetWidth(32); cell.icon:SetHeight(32); cell.icon:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
@@ -469,7 +479,7 @@ function U:Click(cell, mouse)
   elseif cell.section == "bags" then
     if row[8] == "" then return end
     if mouse == "RightButton" then
-      self:Run("USEITEM", { row[1], row[2], row[8] })
+      B:ShowBagMenu(row,cell)
     else
       B.bagSelection = { bag = row[1], slot = row[2], key = row[8], link = row[7] }
       B.notice = "Selected item. Open Gear and click its destination slot."
@@ -656,34 +666,64 @@ function U:CreateSetup()
   label(f, "Pair characters", 13, 16, -16)
   label(f, "Same realm and pairing code. Local DLL links automatically.", 10, 16, -43, 416)
   label(f, "Other character", 10, 16, -80)
-  self.peer = edit(f, "zBoxPeerInput", 130, -72, 286)
-  label(f, "Pairing code", 10, 16, -119)
-  self.key = edit(f, "zBoxKeyInput", 130, -111, 194)
+  self.peer = edit(f, "zBoxPeerInput", 130, -72, 248)
+  self.peerRows={self.peer}
+  compactButton(f,"+",390,-74,26,function() U:AddFollowerRow() end)
+  local body=CreateFrame("Frame",nil,f);self.setupBody=body
+  body:SetAllPoints(f)
+  label(body, "Pairing code", 10, 16, -119)
+  self.key = edit(body, "zBoxKeyInput", 130, -111, 194)
   self.key:SetMaxLetters(32)
-  button(f, "Generate", 334, -111, 82, function() U.key:SetText(B:NewSession() .. B:NewSession()) end)
-  label(f, "Account 1: Control.  Account 2: Allow.", 10, 16, -155, 416)
-  button(f, "Control", 16, -177, 194, function() U:Pair("control") end)
-  button(f, "Allow", 222, -177, 194, function() U:Pair("agent") end)
-  label(f, "Only this character and realm. /zbox off revokes pairing.", 9, 16, -218, 416)
-  label(f, "Panel scale", 10, 16, -249, 104)
-  compactButton(f, "-", 130, -243, 28, function() U:SetScale(math.max(0.55, (B.db.uiScale or 0.85) - 0.05)) end)
-  self.scaleLabel = label(f, "85%", 10, 170, -249, 42)
-  compactButton(f, "+", 216, -243, 28, function() U:SetScale(math.min(1.25, (B.db.uiScale or 0.85) + 0.05)) end)
-  compactButton(f, "Reset", 258, -243, 72, function() U:SetScale(0.85) end)
-  label(f, "Movement mode", 10, 16, -280, 114)
-  self.modeButton = compactButton(f, "Follow mode", 130, -274, 200, function()
+  button(body, "Generate", 334, -111, 82, function() U.key:SetText(B:NewSession() .. B:NewSession()) end)
+  label(body, "Account 1: Control.  Account 2: Allow.", 10, 16, -155, 416)
+  button(body, "Control", 16, -177, 194, function() U:Pair("control") end)
+  button(body, "Allow", 222, -177, 194, function() U:Pair("agent") end)
+  label(body, "Only this character and realm. /zbox off revokes pairing.", 9, 16, -218, 416)
+  label(body, "Panel scale", 10, 16, -249, 104)
+  compactButton(body, "-", 130, -243, 28, function() U:SetScale(math.max(0.55, (B.db.uiScale or 0.85) - 0.05)) end)
+  self.scaleLabel = label(body, "85%", 10, 170, -249, 42)
+  compactButton(body, "+", 216, -243, 28, function() U:SetScale(math.min(1.25, (B.db.uiScale or 0.85) + 0.05)) end)
+  compactButton(body, "Reset", 258, -243, 72, function() U:SetScale(0.85) end)
+  label(body, "Movement mode", 10, 16, -280, 114)
+  self.modeButton = compactButton(body, "Follow mode", 130, -274, 200, function()
     B:CycleMovementMode()
   end)
-  label(f,"Pet approach",10,16,-309,114)
-  self.petStyleButton = compactButton(f,"Auto (class)",130,-303,200,function()
+  label(body,"Pet approach",10,16,-309,114)
+  self.petStyleButton = compactButton(body,"Auto (class)",130,-303,200,function()
     local nextStyle = { auto="melee", melee="ranged", ranged="auto" }
     B.db.petStyle=nextStyle[B.db.petStyle or "auto"]; U:Refresh()
   end)
   f:SetHeight(380)
-  button(f, "Disable / revoke", 16, -340, 170, function() B:Slash("off"); U:Refresh() end)
-  button(f, "Diagnostics", 196, -340, 128, function() B:Slash("diag") end)
-  button(f, "Close", 334, -340, 82, function() f:Hide() end)
+  button(body, "Disable / revoke", 16, -340, 170, function() B:Slash("off"); U:Refresh() end)
+  button(body, "Diagnostics", 196, -340, 128, function() B:Slash("diag") end)
+  button(body, "Close", 334, -340, 82, function() f:Hide() end)
   f:Hide()
+end
+
+function U:LayoutFollowerRows()
+  local count=table.getn(self.peerRows)
+  for i,row in ipairs(self.peerRows) do
+    row:ClearAllPoints();row:SetPoint("TOPLEFT",self.setup,"TOPLEFT",130,-72-(i-1)*29);row:Show()
+    if row.remove then row.remove:ClearAllPoints();row.remove:SetPoint("TOPLEFT",self.setup,"TOPLEFT",390,-74-(i-1)*29);row.remove:Show() end
+  end
+  self.setupBody:ClearAllPoints();self.setupBody:SetPoint("TOPLEFT",self.setup,"TOPLEFT",0,-(count-1)*29)
+  self.setupBody:SetWidth(450);self.setupBody:SetHeight(380)
+  self.setup:SetHeight(380+(count-1)*29);self:PlacePanels()
+end
+function U:AddFollowerRow(value)
+  if table.getn(self.peerRows)>=16 then B:Notify("Up to 16 followers");return end
+  local row=edit(self.setup,nil,130,-72,248)
+  row.remove=compactButton(self.setup,"-",390,-74,26,function()
+    for i,item in ipairs(U.peerRows) do if item==row then table.remove(U.peerRows,i);break end end
+    row:Hide();row.remove:Hide();U:LayoutFollowerRows()
+  end)
+  table.insert(self.peerRows,row);row:SetText(value or "");self:LayoutFollowerRows()
+end
+function U:SetFollowerRows(names)
+  for i=table.getn(self.peerRows),2,-1 do local row=table.remove(self.peerRows,i);row:Hide();row.remove:Hide() end
+  self.peer:SetText(names[1] or "")
+  for i=2,table.getn(names) do self:AddFollowerRow(names[i]) end
+  self:LayoutFollowerRows()
 end
 
 function U:LayoutPetControls()
@@ -708,7 +748,11 @@ function U:LayoutPetControls()
 end
 
 function U:Pair(role)
-  local ok, reason = B:Configure(role, self.peer:GetText(), self.key:GetText())
+  local names={}
+  for _,row in ipairs(self.peerRows) do if row:IsShown() and row:GetText()~="" then table.insert(names,row:GetText()) end end
+  if role=="agent" and table.getn(names)>1 then B:Notify("On a follower, enter only the driver name");return end
+  local ok,reason
+  if role=="control" then ok,reason=B:ConfigureRoster(names,self.key:GetText()) else ok,reason=B:Configure(role,names[1],self.key:GetText()) end
   if not ok then B:Notify(reason); return end
   self.peer:ClearFocus(); self.key:ClearFocus(); self.setup:Hide(); self:Refresh()
 end
@@ -716,7 +760,7 @@ end
 function U:ShowSetup()
   B:ReleaseDirections()
   self.frame:Show(); self.browser:Hide(); self.pad:Hide(); self.keys:Hide()
-  self.peer:SetText(B.db.peer or "")
+  self:SetFollowerRows(B.db.role=="control" and (B.db.peers or {B.db.peer or ""}) or {B.db.peer or ""})
   self.key:SetText(B.db.key or "")
   self.setup:Show()
 end
@@ -795,9 +839,10 @@ function U:Toggle()
 end
 
 function U:UpdateVisibility()
-  if self.closeButton then self.closeButton.caption:SetText(B.connected and "-" or "x") end
+  local linked=B:AnyFollowerConnected()
+  if self.closeButton then self.closeButton.caption:SetText(linked and "-" or "x") end
   if not self.restoreButton then return end
-  if B.connected and not self.frame:IsShown() then
+  if linked and not self.frame:IsShown() then
     if not self.restoreButton:IsShown() then
       self.restoreButton:ClearAllPoints()
       self.restoreButton:SetPoint("TOPLEFT", self.frame, "TOPLEFT", 0, 0)
@@ -805,7 +850,7 @@ function U:UpdateVisibility()
     end
   else self.restoreButton:Hide() end
   if self.miniTalkButton then
-    if B.connected and B.db.role=="control" and not self.frame:IsShown() then self.miniTalkButton:Show()
+    if linked and B.db.role=="control" and not self.frame:IsShown() then self.miniTalkButton:Show()
     else self.miniTalkButton:Hide() end
   end
   if not B.connected and self.npcWindow then self.npcWindow:Hide() end

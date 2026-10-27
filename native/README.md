@@ -1,12 +1,21 @@
 # Native bridge
 
-Version 0.1.9, capability contract 8, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.10, capability contract 9, for the guarded WoW 1.12.1.5875 x86 image.
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.
 Contract 6 also adds directed addon whispers for pairing without a party.
 Contract 7 adds same-computer IPC through user-restricted named shared memory.
 Contract 8 adds fixed, argument-free linked activity refresh.
+Contract 9 adds independent local peer channels (up to 16), trade operations and
+confirmed item destruction. `LocalSelect(name)` selects a bank endpoint;
+`LocalCloseAll` retires all endpoints on reload, role/code changes and logout.
+Each endpoint retains its own names/code/realm/role, generations, queues and
+reserved Stop lane. No TCP listener or network relay is added.
+The fixed allowlist adds InitiateTrade(unit), ClickTradeButton(1..6), and
+argument-free AcceptTrade, CancelTradeAccept, CloseTrade and DeleteCursorItem.
+Lua validates live partners, complete offer fingerprints, bag keys/counts,
+cursor ownership and one-use destruction confirmations before these calls.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped
