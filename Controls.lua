@@ -102,6 +102,7 @@ local controlMacros = {
   move = { "Move", "Interface\\Icons\\Ability_Rogue_Sprint" },
   stop = { "STOP", "Interface\\Icons\\Spell_Nature_TimeStop" },
   talk = { "Talk", "Interface\\Icons\\INV_Misc_Note_01" },
+  stack = { "Stack", "Interface\\Icons\\Ability_Hunter_MendPet" },
 }
 
 function B:UseControl(kind)
@@ -116,6 +117,7 @@ function B:UseControl(kind)
   elseif kind == "follow" then return self:FollowCommand()
   elseif kind == "assist" then return self:AssistCommand()
   elseif kind == "stop" then return self:Command("STOP")
+  elseif kind == "stack" then return self:SetMirrorStack(not self.db.mirrorStack)
   elseif kind == "talk" then
     if not self.UI then return false,"The NPC window is unavailable" end
     return self.UI:Talk()

@@ -5,7 +5,10 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.8.0 | Native bridge 0.1.9 | Windows x86**
+**Addon 0.8.1 | Native bridge 0.1.9 | Windows x86**
+
+Updating from 0.8.0: update the addon on both characters and `/reload` both.
+Mirror mode adds the **Stack ON/OFF** toggle. The bridge DLL is unchanged.
 
 Updating from 0.7.x: update zBox on both characters. The new addon adds direct
 NPC controls, linked quest pickup/turn-in and shared pfQuest tooltip progress.
@@ -297,7 +300,7 @@ resume when the main enters combat. A target's death ends its chase.
 Cast-time spells stop movement and hold facing until the cast finishes. STOP,
 manual account-2 movement, NPC interaction and a mode change cancel the order.
 
-**Drag or Shift-click Follow, Assist, Attack, Move, Talk, or STOP** to put its macro on
+**Drag or Shift-click Follow, Assist, Attack, Move, Talk, Stack, or STOP** to put its macro on
 account 1's action bars. Export Follow while in Pet mode for a Pet Follow macro;
 Pet Follow/Assist/Attack macros select Pet mode when used, even after switching
 modes. They use the same saved pairing checks and character macro slots as
@@ -313,6 +316,7 @@ For macros you create yourself, use one command per macro:
 | Click-to-move picker | `/zbox move` |
 | Stop | `/zbox stop` |
 | Talk to NPC | `/zbox talk` |
+| Mirror Stack toggle | `/zbox stack` |
 
 Unlike exported macros, handwritten slash commands use the currently configured
 pairing rather than storing a particular character and realm.
@@ -433,6 +437,27 @@ Current mirrored inputs resume after the actual cast or channel ends. Follow
 is not invoked. STOP pauses mirroring until resumed; direct account-2 movement,
 Follow and NPC controls also pause it. The panel may remain hidden.
 
+**Stack OFF / Stack ON** appears beside the Mirror button. Turn it on to pulse
+account 2 toward account 1's live XY position every two seconds. It is off by
+default and the preference is saved per character. Each correction runs for at
+most one second, using forward/backward/strafe inputs relative to the main's
+heading, then returns to ordinary Mirror inputs. Small drift is left alone once
+within the input frame's arrival tolerance, avoiding jitter around the goal.
+Standing still briefly gives the closest overlap; moving clients, latency and
+different movement speeds can still leave a small gap.
+
+Stack operates within 40 yards on the same floor, requires a loaded paired
+character and checks the straight route for obstructions. Blocked or stalled
+corrections stop their pulse. Cast-time/channel holds suspend correction without
+changing cast-facing behavior. Mirror pause, STOP, manual account-2 orders,
+NPC interaction, mode changes, loading and connection loss suspend centering.
+Reconnect and reload still start Mirror paused, even with Stack saved ON.
+
+Drag or Shift-click Stack to export its paired macro, or bind **Mirror Stack
+toggle** in Keys. `/zbox stack` toggles it; `/zbox stack on` and `/zbox stack off`
+set it explicitly. Both characters need addon 0.8.1; no additional DLL update is
+required for Stack.
+
 ## Limits and diagnostics
 
 Remote combat errors stay in the dock and `/zbox diag` by default, including
@@ -515,6 +540,7 @@ python tests\test_ungrouped.py
 python tests\test_local_transport.py
 python tests\test_feedback_damage.py
 python tests\test_companion_convenience.py
+python tests\test_mirror_stack.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
@@ -540,6 +566,9 @@ Convenience fixtures cover agent-only activity leases, stock/pfUI NPC windows,
 Talk macros while minimized, independent shared quest progress, and confirmed
 linked quest flows with range/eligibility/reward-choice/cancel safeguards. When
 the sibling pfQuest is installed, its actual tooltip builder is tested too.
+Mirror Stack fixtures exercise varied headings/frame rates over local IPC and
+addon messages, pulse timing, live positions, casts, obstacles, manual override,
+disconnect/reload, metadata validation, compact layout and paired toggle macros.
 
 `python tests/render_ui.py` renders widget layouts with placeholder icons for
 inspection. They are fixture previews, not live game captures. The layout takes

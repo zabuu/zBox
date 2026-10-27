@@ -21,6 +21,7 @@ function B:StopMovement(preserveCast, force, preservePet)
     self.pendingCast, self.resumeFollow, self.castingUntil, self.followQuietAt = nil, nil, nil, nil
     self.castActive, self.castEventTimeout, self.castFacingGUID, self.stopForCast = nil, nil, nil, nil
     self.mirrorInput = nil
+    self.mirrorStack=nil
   end
   self.destination, self.manualMove, self.manualUntil = nil, nil, nil
   self.axes = self.axes or {}
@@ -234,6 +235,7 @@ end
 
 function B:Manual(axis, enabled)
   if not axes[axis] then return false, "Invalid movement axis" end
+  if self.mirrorInput then self:StopMovement() end
   if enabled and (self.destination or self.following or self.pendingCast or self.resumeFollow or self.petState) then self:StopMovement() end
   local ok, reason = self:SetAxis(axis, enabled)
   if not ok then return false, reason end
@@ -241,7 +243,7 @@ function B:Manual(axis, enabled)
   return true
 end
 
-function B:ManualAxes(mask)
+function B:ManualAxes(mask, mirrored)
   mask = tonumber(mask)
   if not mask or mask < 0 or mask > 63 or mask ~= math.floor(mask) then return false, "Invalid movement keys" end
   local originalMask = mask
@@ -251,6 +253,7 @@ function B:ManualAxes(mask)
   for i = 1, 5, 2 do
     if enabled[i] and enabled[i + 1] then return false, "Opposite movement keys cannot be held together" end
   end
+  if not mirrored then self.mirrorInput,self.mirrorStack=nil,nil end
   if self.destination or self.following or (originalMask ~= 0 and (self.pendingCast or self.resumeFollow or self.petState)) then self:StopMovement() end
   for i = 1, 6 do
     local ok, reason = self:SetAxis(directions[i], enabled[i])

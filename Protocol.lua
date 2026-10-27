@@ -218,6 +218,7 @@ function B:Message(kind, fields, id, now)
     local wasConnected = self.connected
     self.connected, self.lastReceive, self.bridgeMode = true, now, fields[4]
     self:SetPeerGUID(fields[5])
+    self.peerVersion=fields[1]
     if not wasConnected then
       self.notice = "Connected to " .. self.db.peer
       self:Request(self.view or "actions", self.page or 1)

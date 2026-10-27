@@ -233,6 +233,19 @@ function U:Create()
   end)
   self.petAssist:Hide(); self.petAttack:Hide()
   self.moveButton = compactButton(f, "Move", 306, -84, 76, function() U:ArmMove() end)
+  self.stackButton=compactButton(f,"Stack OFF",274,-84,78,function()
+    local ok,reason=B:SetMirrorStack(not B.db.mirrorStack)
+    if not ok then B:Notify(reason) end
+  end)
+  self:EnableControlDrag(self.stackButton,"stack")
+  self.stackButton:SetScript("OnEnter",function()
+    GameTooltip:SetOwner(this,"ANCHOR_TOP");GameTooltip:SetText("Mirror Stack: "..(B.db.mirrorStack and "ON" or "OFF"))
+    GameTooltip:AddLine("Toggle periodic centering on account 1 (every two seconds). Keeps the main's heading.",.7,.9,.85,true)
+    GameTooltip:AddLine("Stand still briefly for the closest alignment. Casts, Mirror pause and STOP suspend corrections.",.7,.9,.85,true)
+    GameTooltip:AddLine("Drag or Shift-click to put this toggle on your action bar.",1,.8,.3,true);GameTooltip:Show()
+  end)
+  self.stackButton:SetScript("OnLeave",function() GameTooltip:Hide() end)
+  self.stackButton:Hide()
   local stop = compactButton(f, "STOP", 388, -84, 96, function() U:Run("STOP") end)
   self.stopButton = stop
   stop.caption:SetTextColor(1, 0.4, 0.36)
@@ -674,13 +687,20 @@ function U:CreateSetup()
 end
 
 function U:LayoutPetControls()
-  local pet = B.db.petMovement
-  local placements = { {self.targetMode,106,pet and 82 or 112}, {self.followButton,pet and 192 or 224,pet and 56 or 76},
-    {self.moveButton,pet and 372 or 306,pet and 44 or 76}, {self.stopButton,pet and 420 or 388,pet and 64 or 96} }
+  local pet,mirror = B.db.petMovement,B.db.mirrorMovement
+  local placements = { {self.targetMode,106,(pet or mirror) and 82 or 112},
+    {self.followButton,(pet or mirror) and 192 or 224,pet and 56 or (mirror and 78 or 76)},
+    {self.moveButton,pet and 372 or (mirror and 356 or 306),pet and 44 or (mirror and 50 or 76)},
+    {self.stopButton,pet and 420 or (mirror and 412 or 388),pet and 64 or (mirror and 72 or 96)} }
   for _,entry in ipairs(placements) do
     entry[1]:ClearAllPoints(); entry[1]:SetPoint("TOPLEFT",self.frame,"TOPLEFT",entry[2],-84); entry[1]:SetWidth(entry[3])
   end
   if pet then self.petAssist:Show(); self.petAttack:Show() else self.petAssist:Hide(); self.petAttack:Hide() end
+  if mirror then
+    self.stackButton.caption:SetText(B.db.mirrorStack and "Stack ON" or "Stack OFF")
+    self.stackButton.caption:SetTextColor(B.db.mirrorStack and .3 or .75,B.db.mirrorStack and 1 or .75,.8)
+    self.stackButton:Show()
+  else self.stackButton:Hide() end
   if self.petStyleButton then
     local styles = { auto="Auto (class)", melee="Melee", ranged="Caster / ranged" }
     self.petStyleButton.caption:SetText(styles[B.db.petStyle or "auto"] or styles.auto)
@@ -835,6 +855,7 @@ local keyRows = {
   { "Strafe left", "ZBOX_STRAFELEFT" }, { "Strafe right", "ZBOX_STRAFERIGHT" },
   { "Follow main", "ZBOX_FOLLOW" }, { "Assist main", "ZBOX_ASSIST" }, { "Pet attack", "ZBOX_ATTACK" }, { "Jump", "ZBOX_JUMP" },
   { "Talk to NPC", "ZBOX_TALK" },
+  { "Mirror Stack toggle", "ZBOX_STACK" },
   { "Emergency stop", "ZBOX_STOP" }, { "Show / hide panel", "ZBOX_TOGGLE" }
 }
 

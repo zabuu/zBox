@@ -42,7 +42,7 @@ function B:SendStatus()
   self:Send("STATE", { "status", UnitName("player"), UnitLevel("player"), class or className or "",
     UnitHealth("player"), UnitHealthMax("player"), UnitMana("player"), UnitManaMax("player"),
     UnitName("target") or "No target", flag(UnitAffectingCombat("player")), flag(UnitIsDeadOrGhost("player")),
-    points or 0, self.petState and (self.petState.guid and "Pet attack" or (self.petState.mode == "assist" and "Pet assist" or "Following")) or (self.destination and "Moving to point" or (self.following and "Following" or "Idle")),
+    points or 0, self.mirrorStack and self.mirrorStack.active and "Stacking" or (self.petState and (self.petState.guid and "Pet attack" or (self.petState.mode == "assist" and "Pet assist" or "Following")) or (self.destination and "Moving to point" or (self.following and "Following" or "Idle"))),
     self:GetBridgeInfo().label }, true)
   if self.actionPage then
     local rows, first = {}, (self.actionPage - 1) * 12 + 1
@@ -385,7 +385,7 @@ function B:Execute(fields)
     if fields[3]=="renew" and self:IsCastHeld(GetTime()) then return true,"Held inputs paused for cast" end
     return self:ManualAxes(fields[2])
   elseif command == "MIRROR" then
-    return self:AcceptMirror(fields[2], fields[3], fields[4])
+    return self:AcceptMirror(fields[2], fields[3], fields[4],fields[5],fields[6],fields[7],fields[8])
   elseif command == "JUMP" then
     if fields[2] == "mirror" and self:IsCastHeld(GetTime()) then return true, "Jump skipped while casting" end
     return self:Invoke("Jump")

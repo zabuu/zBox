@@ -2,7 +2,7 @@
 ## Title: |cff33ffccz|rBox
 ## Notes: Paired two-client control panel for a private WoW 1.12.1 test server.
 ## Author: zabuu
-## Version: 0.8.0
+## Version: 0.8.1
 ## SavedVariablesPerCharacter: zBoxDB
 ## OptionalDeps: SuperAPI, SuperMacro, _LazyPig, z_DNumbers, pfUI, pfQuest
 Core.lua
@@ -15,6 +15,7 @@ Casting.lua
 Controls.lua
 Cooldowns.lua
 Mirror.lua
+Stack.lua
 Pet.lua
 Quests.lua
 QuestProgress.lua

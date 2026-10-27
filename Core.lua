@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.8.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.8.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -163,6 +163,7 @@ function B:Diagnostics()
   if self.damageBridge then report=report.."; damage sent/received="..tostring(self.damageRelayed or 0).."/"..tostring(self.damageReceived or 0) end
   if self.lastRoundTrip then report = report .. "; command ack=" .. math.floor(self.lastRoundTrip*1000+0.5) .. "ms" end
   report=report.."; awake="..(self.db.keepAwake==false and "off" or (self.activityStatus or (info.activity and "ready" or "needs bridge 0.1.9")))
+  if self.db.mirrorStack or self.lastStackStatus then report=report.."; stack="..(self.lastStackStatus or (self.db.mirrorStack and "on" or "off")) end
   return report
 end
 
@@ -224,6 +225,7 @@ function B:Disconnect(reason)
   if self.localOpened then pcall(zBoxNative,"LocalDiscard") end
   self.connected, self.session, self.lastReceive = false, nil, nil
   self.peerGUID = nil
+  self.peerVersion=nil
   if self.RestoreNPCGuards then self:RestoreNPCGuards() end
   self.cache, self.pending, self.incoming = {}, {}, {}
   self.queueHigh, self.queueLow, self.lowIndex, self.highIndex = {}, {}, 1, 1
@@ -247,6 +249,7 @@ function B:Disconnect(reason)
   self.nextActivity,self.activityStatus = nil,nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
   self.lastMirrorJump = nil
+  self.lastStackX,self.lastStackY,self.lastStackZ,self.lastStackEnabled,self.lastStackStatus=nil,nil,nil,nil,nil
   if self.ResetMacroCooldowns then self:ResetMacroCooldowns() end
   if self.UI then
     if self.UI.EndBinding then self.UI:EndBinding() end
@@ -347,6 +350,11 @@ function B:Slash(message)
     if self.UI then self.UI:ArmMove() end
   elseif command == "keys" then
     if self.UI then self.UI:ShowKeys() end
+  elseif command == "stack" then
+    if rest~="" and rest~="on" and rest~="off" then self:Notify("Use /zbox stack [on|off]");return end
+    local enabled=rest=="on" or (rest=="" and not self.db.mirrorStack)
+    local ok,reason=self:SetMirrorStack(enabled)
+    if reason then self:Notify(reason) end
   elseif command == "talk" or command == "npc" then
     if self.UI then self.UI:Talk() end
   elseif command == "awake" then
@@ -491,6 +499,7 @@ frame:SetScript("OnUpdate", function()
     B:MirrorTick(GetTime())
     B:Pump(GetTime(),0)
   end
+  if B.connected and B.db.role=="agent" and B.mirrorStack and B.mirrorStack.active then B:MirrorAgentTick(GetTime()) end
   if B.clock < 0.05 then return end
   local elapsed = B.clock
   B.clock = 0
@@ -502,6 +511,7 @@ BINDING_HEADER_ZBOX = "zBox - second character"
 BINDING_NAME_ZBOX_TOGGLE = "Toggle control panel"
 BINDING_NAME_ZBOX_STOP = "Stop second character"
 BINDING_NAME_ZBOX_MOVE = "Choose a move destination"
+BINDING_NAME_ZBOX_STACK = "Toggle Mirror Stack centering"
 BINDING_NAME_ZBOX_TALK = "Talk to NPC with account 2"
 BINDING_NAME_ZBOX_FORWARD = "Account 2: hold to move forward"
 BINDING_NAME_ZBOX_BACKWARD = "Account 2: hold to move backward"
