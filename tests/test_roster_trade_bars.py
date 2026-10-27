@@ -175,7 +175,7 @@ if znp.is_file():
     zBox.db.enabled=false;zNameplates.UpdatePairedVitals({[parent]=true});assert(not plate.pairedVitals:IsShown())
     ''')
     print('PASS: zNameplates draws exactly two physical pixel bars at varied scales, for each fresh authorized GUID only; recycling/removal/revocation hide them')
-    
+
 else:
     print('SKIP: optional zNameplates integration fixture (sibling checkout not installed)')
 
@@ -232,4 +232,3 @@ t.main.execute('assert(zBox.db.peer=="Beta");zBox:Slash("off");assert(not zBox.r
 assert not channels.get(('Main','Alt')) and not channels.get(('Main','Beta'))
 for lua in [t.alt,t.beta]:lua.execute('assert(not zBox.connected)')
 print('PASS: multi-endpoint Lua transport switches contexts correctly, avoids whispers, broadcasts Mirror heading/inputs and Stop, routes selected casts and retires all channels')
-
