@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.7.1", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.8.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
@@ -99,7 +99,7 @@ function B:GetBridgeInfo()
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
     local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7) then
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
@@ -107,6 +107,7 @@ function B:GetBridgeInfo()
       info.nativeMove = contract >= 5
       info.directWhisper = contract >= 6
       info.localIPC = contract >= 7
+      info.activity = contract >= 8
     else
       info.label = "Bridge update required"
     end
@@ -161,6 +162,7 @@ function B:Diagnostics()
   report=report.."; zDNumbers="..(self.damageBridge and "pet relay ready" or "not loaded / update required")
   if self.damageBridge then report=report.."; damage sent/received="..tostring(self.damageRelayed or 0).."/"..tostring(self.damageReceived or 0) end
   if self.lastRoundTrip then report = report .. "; command ack=" .. math.floor(self.lastRoundTrip*1000+0.5) .. "ms" end
+  report=report.."; awake="..(self.db.keepAwake==false and "off" or (self.activityStatus or (info.activity and "ready" or "needs bridge 0.1.9")))
   return report
 end
 
@@ -237,6 +239,12 @@ function B:Disconnect(reason)
   self.lastRoundTrip = nil
   self.localStopPacket = nil
   self.npcKind, self.npcGUID, self.npcName = nil, nil, nil
+  self.npcDirty,self.npcWatch,self.questIntent,self.localQuestScene = nil,nil,nil,nil
+  self.lastNPCSnapshot,self.npcDismissedRevision = nil,nil
+  self.npcClosing=nil
+  self.questObserveAt=nil
+  self.questProgressDigest,self.nextQuestProgress,self.lastQuestProgress,self.questProgressIncoming = nil,nil,nil,nil
+  self.nextActivity,self.activityStatus = nil,nil
   self.mirrorPaused, self.lastMirrorAt = true, nil
   self.lastMirrorJump = nil
   if self.ResetMacroCooldowns then self:ResetMacroCooldowns() end
@@ -266,10 +274,10 @@ end
 function B:Command(command, fields)
   if not self.connected or self.db.role ~= "control" then return false, "Not connected" end
   fields = fields or {}
-  if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" then
+  if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
     self.mirrorPaused = true
   end
-  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "TALK" or command == "NPC" then
+  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
     self.heldInputs, self.heldMask = {}, 0
     self.heldModifiers = {}
     if self.UI then self.UI.held = nil end
@@ -315,6 +323,7 @@ function B:Initialize()
   self.ready = true
   if self.InstallNPCGuards then self:InstallNPCGuards() end
   if self.InstallDamageBridge then self:InstallDamageBridge() end
+  if self.InstallQuestTooltip then self:InstallQuestTooltip() end
   if self.UI then self.UI:Create() end
   self:Print("Loaded " .. self.version .. ". /zbox opens the panel; /zbox help explains pairing.")
 end
@@ -338,6 +347,15 @@ function B:Slash(message)
     if self.UI then self.UI:ArmMove() end
   elseif command == "keys" then
     if self.UI then self.UI:ShowKeys() end
+  elseif command == "talk" or command == "npc" then
+    if self.UI then self.UI:Talk() end
+  elseif command == "awake" then
+    if rest~="on" and rest~="off" then self:Notify("Use /zbox awake on|off (on account 2)");return end
+    self.db.keepAwake=rest=="on";self.nextActivity=nil
+    self:Notify("Linked background activity "..rest)
+  elseif command == "quests" and (rest=="on" or rest=="off") then
+    self.db.linkQuests=rest=="on"
+    self:Notify("Linked quest pickup/turn-in "..rest)
   elseif command == "pet" then
     local ok,reason
     if rest == "follow" or rest == "assist" or rest == "attack" then ok,reason=self:UseControl("pet" .. rest)
@@ -374,6 +392,8 @@ function B:Slash(message)
     self:Print(self:Diagnostics())
     if self.connected and self.db.role == "control" then self:Send("DIAG", {}, true) end
   elseif command == "help" then
+    self:Print("/zbox talk = interact/open account 2's NPC window; drag Talk onto your bars or bind it in Keys")
+    self:Print("/zbox quests on|off = linked quest pickup/turn-in; /zbox awake on|off = linked background activity (account 2)")
     self:Print("On account 2: /zbox allow MainName sharedcode; party membership is not required with bridge 0.1.7.")
     self:Print("On account 1: /zbox control AltName sharedcode (same code, 8-32 characters)")
     self:Print("/zbox = panel; /zbox stop = emergency stop; /zbox off = revoke pairing")
@@ -414,7 +434,7 @@ frame:RegisterEvent("SPELLCAST_CHANNEL_START")
 frame:RegisterEvent("SPELLCAST_CHANNEL_STOP")
 frame:RegisterEvent("SPELLCAST_DELAYED")
 frame:RegisterEvent("SPELLCAST_CHANNEL_UPDATE")
-local npcEvents = { "GOSSIP_SHOW", "GOSSIP_CLOSED", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_FINISHED",
+local npcEvents = { "GOSSIP_SHOW", "GOSSIP_CLOSED", "QUEST_GREETING", "QUEST_DETAIL", "QUEST_PROGRESS", "QUEST_COMPLETE", "QUEST_FINISHED", "QUEST_ITEM_UPDATE",
   "MERCHANT_SHOW", "MERCHANT_UPDATE", "MERCHANT_CLOSED", "TRAINER_SHOW", "TRAINER_UPDATE", "TRAINER_CLOSED" }
 local npcEventSet = {}
 for _, name in ipairs(npcEvents) do frame:RegisterEvent(name); npcEventSet[name] = true end
@@ -434,10 +454,12 @@ frame:SetScript("OnEvent", function()
   elseif event == "PARTY_MEMBERS_CHANGED" or event == "RAID_ROSTER_UPDATE" then
     if not B:IsEnabled() then B:Disconnect("Pairing transport unavailable") end
   elseif npcEventSet[event] then
-    if B.db.role == "agent" then B:NPCEvent(event) end
+    if B.db.role == "agent" then B:NPCEvent(event)
+    elseif B.connected and B.ObserveQuestScene then B:ObserveQuestScene(event) end
   elseif event == "QUEST_LOG_UPDATE" then
     if not B.questReadUntil or GetTime() > B.questReadUntil then
       B.questCache = nil
+      if B.ObserveQuestChange then B:ObserveQuestChange() end
       B.viewDirty = true
       if B.UI then B.UI.dirty = true end
     end
@@ -480,6 +502,7 @@ BINDING_HEADER_ZBOX = "zBox - second character"
 BINDING_NAME_ZBOX_TOGGLE = "Toggle control panel"
 BINDING_NAME_ZBOX_STOP = "Stop second character"
 BINDING_NAME_ZBOX_MOVE = "Choose a move destination"
+BINDING_NAME_ZBOX_TALK = "Talk to NPC with account 2"
 BINDING_NAME_ZBOX_FORWARD = "Account 2: hold to move forward"
 BINDING_NAME_ZBOX_BACKWARD = "Account 2: hold to move backward"
 BINDING_NAME_ZBOX_LEFT = "Account 2: hold to turn left"

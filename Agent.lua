@@ -66,6 +66,7 @@ function B:SetView(section, page)
   if section == "actions" then self.actionPage, self.barDirty = page, true end
   -- Drop unsent state from the previous view. Commands/heartbeats use another queue.
   self.queueLow, self.lowIndex = {}, 1
+  self.questProgressDigest=nil
 end
 
 function B:ActionLabel(slot)
@@ -149,7 +150,7 @@ function B:SendView(override)
     presentation = self:NPCPresentation()
   end
   self.snapshotID = (self.snapshotID or 0) + 1
-  self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n"), self:Encode(presentation) }, false)
+  self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n"), self:Encode(presentation) }, section=="npc")
   if section == "actions" then self.barDirty = false end
 end
 
@@ -157,20 +158,22 @@ function B:AcceptState(fields, sourceID)
   if fields[1] == "status" then
     if table.getn(fields) ~= 14 then return end
     self.cache.status = fields
+    if self.UI and self.UI.npcWindow and self.cache.npc then self.UI:SkinNPCWindow(self.cache.npc.meta[1]) end
   elseif fields[1] == "snapshot" then
     if (table.getn(fields) ~= 7 and table.getn(fields) ~= 8) or not integer(fields[4], 1, 2147483647) or
        not integer(fields[6], 1, 40) then return end
     local forView = fields[2] == self.view and tonumber(fields[3]) == self.page
     local forBar = fields[2] == "actions" and tonumber(fields[3]) == self.actionPage
     local forBag = fields[2] == "bags" and self.view == "bags" and integer(fields[3], 1, 5)
+    local forNPC=fields[2]=="npc" and integer(fields[3],1,40) and tonumber(fields[4])>(self.lastNPCSnapshot or 0)
     if forBag then
       local previous = self.cache.bags and self.cache.bags[forBag]
       if previous and tonumber(fields[4]) <= previous.id then forBag = nil end
     end
-    if not forView and not forBar and not forBag then return end
+    if not forView and not forBar and not forBag and not forNPC then return end
     if forView and tonumber(fields[4]) <= (self.lastSnapshotID or 0) then forView = false end
     if forBar and tonumber(fields[4]) <= (self.lastBarSnapshotID or 0) then forBar = false end
-    if not forView and not forBar and not forBag then return end
+    if not forView and not forBar and not forBag and not forNPC then return end
     local rows = {}
     if fields[7] ~= "" then
       local encoded = self.Split(fields[7], "\n")
@@ -187,13 +190,20 @@ function B:AcceptState(fields, sourceID)
     end
     local snapshot = { section = fields[2], page = tonumber(fields[3]), title = fields[5],
       maximum = tonumber(fields[6]), rows = rows, id = tonumber(fields[4]), meta = fields[8] and self:Decode(fields[8]) or {} }
+    if forNPC and table.getn(rows)>32 then return end
     if forBag then
       self.cache.bags = self.cache.bags or {}
       self.cache.bags[forBag] = snapshot
     end
     if forView then self.lastSnapshotID, self.cache.view = tonumber(fields[4]), snapshot end
     if forBar then self.lastBarSnapshotID, self.cache.bar = tonumber(fields[4]), snapshot end
+    if forNPC then
+      self.lastNPCSnapshot,self.cache.npc=tonumber(fields[4]),snapshot
+      if self.UI and self.UI.ReceiveNPC then self.UI:ReceiveNPC(snapshot) end
+    end
     self.selection = nil
+  elseif fields[1] == "questprogress" then
+    self:AcceptQuestProgress(fields)
   elseif fields[1] == "questkeys" and table.getn(fields) == 2 then
     self.cache.questKeys = {}
     for _, encoded in ipairs(self.Split(fields[2], "\n")) do
@@ -340,6 +350,7 @@ end
 
 function B:Execute(fields)
   local command = fields[1]
+  if command~="QUESTLINK" and command~="MIRROR" and command~="AXES" then self.questIntent=nil end
   if command == "STOP" then
     local stopped, reason = self:StopMovement(nil, true)
     self:Invoke("SpellStopCasting")
@@ -357,6 +368,8 @@ function B:Execute(fields)
     return self:ReceivePet(fields[2],fields[3],fields[4])
   elseif command == "TALK" then
     return self:TalkToNPC(fields[2])
+  elseif command == "QUESTLINK" then
+    return self:LinkQuest(fields)
   elseif command == "NPC" then
     return self:NPCAction(fields[2], fields[3], fields[4])
   elseif command == "ASSIST" then

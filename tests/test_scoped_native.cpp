@@ -5,6 +5,7 @@
 #include "../native/MovementObserver.h"
 #include "../native/NativeMove.h"
 #include "../native/NativeWhisper.h"
+#include "../native/Activity.h"
 
 uint32_t context = 123, depth = 7, bindingExecuting = 0;
 volatile LONG busy = 0;
@@ -39,6 +40,11 @@ int __fastcall fixture(void *, int arguments, int results, int handler) {
   return 0;
 }
 int main(int argc, char **argv) {
+  uint32_t activity=123;
+  assert(!ZBoxRefreshActivity(false,&activity,456) && activity==123);
+  assert(!ZBoxRefreshActivity(true,nullptr,456));
+  assert(ZBoxRefreshActivity(true,&activity,0xFFFFFFFFu) && activity==0xFFFFFFFFu);
+  assert(ZBoxRefreshActivity(true,&activity,17) && activity==17);
   for (mode = 0; mode < 4; ++mode) {
     const int result = ZBoxScopedInvoke(nullptr, fixture, 2, &context, &depth, &bindingExecuting, &busy);
     assert(result == (mode == 1 ? 2 : mode == 2 ? -1 : 0));

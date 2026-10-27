@@ -104,3 +104,13 @@ assert image_bytes(0x838044,8)==b'UNKNOWN\0'
 assert ('push','0xe3') in instructions(0x49A955,16)
 assert ('call','0x703f50') in instructions(0x49A955,16)
 print('PASS: incoming addon whisper reaches the addon event with stock UNKNOWN channel label')
+# The ordinary idle check subtracts the last UI input timestamp from the same
+# client clock. The bridge refreshes just this value, on the Lua thread.
+idle=instructions(0x482EBE,33)
+assert ('call','0x42c010') in idle
+assert ('mov','edi, dword ptr [0xcf0bc8]') in idle
+assert ('sub','eax, edi') in idle
+assert ('lea','ecx, [eax - 0x493e0]') in idle  # Five-minute AFK threshold.
+assert ('mov','dword ptr [0xcf0bc8], ecx') in instructions(0x765F19,38)
+assert ('jmp','0x42b790') in instructions(0x42C010,5)
+print('PASS: guarded client idle-clock/input-timestamp relationship and normal UI input writer')

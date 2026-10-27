@@ -1,11 +1,12 @@
 # Native bridge
 
-Version 0.1.8, capability contract 7, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.9, capability contract 8, for the guarded WoW 1.12.1.5875 x86 image.
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.
 Contract 6 also adds directed addon whispers for pairing without a party.
 Contract 7 adds same-computer IPC through user-restricted named shared memory.
+Contract 8 adds fixed, argument-free linked activity refresh.
 
 The bridge permits fixed game API names with primitive argument validation.
 It does not execute received code. Normal protected Lua calls use the scoped
@@ -111,6 +112,16 @@ movement state at `0xC4D888` to idle (12). `FollowUnit("player")` is rejected by
 this executable and must not be used as a cancellation mechanism.
 The normal ground-click dispatch at `0x6102B0` supplies mode 4 and zero GUID.
 CTM state 4 is point movement; its destination is at `0xC4D890/894/898`.
+
+`RefreshActivity` (contract 8) takes no arguments and writes the client clock
+from `0x42C010` to the normal UI input timestamp at `0xCF0BC8`, only in world.
+The actual executable's idle check at `0x482EBE` subtracts this timestamp from
+that same clock and compares against 300000 ms. Normal UI input writes the same
+field at `0x765F34`. `Activity.lua` permits a refresh every 30 seconds only on a
+live linked agent, and stops its lease on loss/loading/revocation. No input
+hooks, synthetic movement, resident timer, execution-context changes or client
+clock overrides are involved. `Activity.h` fixtures cover world/null guards and
+32-bit timestamp wrap; the read-only ABI fixture checks these client instructions.
 
 Independent reference declarations are in the original
 [Interact project](https://github.com/vargv666/Interact/blob/main/Game.h) and

@@ -211,6 +211,7 @@ function B:Message(kind, fields, id, now)
     self:Send("READY", { self.version, self:Realm(), UnitName("player"),
       type(zBoxNative) == "function" and "bridge" or "lua", self:GUID("player") }, true)
     self.activeView = self.activeView or { section = "actions", page = 1 }
+    self.questProgressDigest,self.nextQuestProgress = nil,nil
     self.viewDirty, self.barDirty = true, true
   elseif kind == "READY" and self.db.role == "control" then
     if fields[2] ~= self:Realm() or self:Name(fields[3]) ~= self:Name(self.db.peer) then return end
@@ -236,6 +237,9 @@ function B:Message(kind, fields, id, now)
   elseif kind == "VIEW" and self.db.role == "agent" and self.connected then
     self.lastReceive = now
     self:SetView(fields[1], fields[2])
+  elseif kind == "NPCVIEW" and self.db.role == "agent" and self.connected then
+    local page=self.Integer(fields[1],1,40)
+    if page then self.lastReceive,self.npcPage,self.npcWatch,self.npcDirty=now,page,true,true end
   elseif kind == "BAG" and self.db.role == "agent" and self.connected then
     local page = self.Integer(fields[1], 1, 5)
     if page and now - (self.lastBagRequestAt or -10) >= 0.4 then
@@ -303,11 +307,18 @@ function B:Tick(now, elapsed)
     self.lastHeartbeat = now
   end
   if self.connected and self.db.role == "agent" then
+    self:ActivityTick(now)
+    self:QuestIntentTick(now)
+    self:SendQuestProgress(now)
     self:MovementTick(now)
     self:CastingTick(now)
     self:MirrorAgentTick(now)
     self:PetTick(now)
     self:SendWatchedCooldowns(now)
+    if self.npcDirty and now-(self.lastNPCAt or -10)>=0.15 then
+      self:SendView({section="npc",page=self.npcPage or 1})
+      self.npcDirty,self.lastNPCAt=false,now
+    end
     if now - self.lastStatus >= 0.5 then
       self:SendStatus()
       self.lastStatus = now
@@ -322,6 +333,10 @@ function B:Tick(now, elapsed)
       self.lastBarAt = now
     end
   end
+  if self.connected and self.db.role=="control" and now >= (self.nextQuestTooltipHook or 0) then
+    self.nextQuestTooltipHook=now+2;self:InstallQuestTooltip()
+  end
+  if self.connected and self.db.role=="control" then self:QuestObservationTick(now) end
   if self.ControlTick then self:ControlTick(now) end
   if self.MirrorTick then self:MirrorTick(now) end
   if self.MacroCooldownTick then self:MacroCooldownTick(now) end

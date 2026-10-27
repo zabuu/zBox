@@ -15,6 +15,8 @@ function B:NPCEvent(name)
     end
   end
   self.npcRevision = (self.npcRevision or 0) + 1
+  self.npcDirty=true
+  if events[name] or closed[name] then self.npcPage=1 end
   self.viewDirty = true
 end
 
@@ -78,8 +80,9 @@ end
 
 function B:NPCView(page)
   local all, rows = self:NPCRows(), {}
-  for i = (page-1)*6+1, math.min(page*6, table.getn(all)) do table.insert(rows, self:Encode(all[i])) end
-  return rows, self.npcKind and ((self.npcName or "NPC") .. " - " .. self.npcKind) or "Target an NPC, then click Talk", math.max(1, math.ceil(table.getn(all)/6))
+  local size=(self.npcKind=="gossip" or self.npcKind=="greeting") and 32 or 6
+  for i = (page-1)*size+1, math.min(page*size, table.getn(all)) do table.insert(rows, self:Encode(all[i])) end
+  return rows, self.npcKind and ((self.npcName or "NPC") .. " - " .. self.npcKind) or "Target an NPC, then click Talk", math.max(1, math.ceil(table.getn(all)/size))
 end
 
 function B:NPCPresentation()
@@ -92,9 +95,34 @@ function B:NPCPresentation()
   elseif kind == "progress" then title, dialogue = GetTitleText(), GetProgressText() or ""
   elseif kind == "reward" then title, dialogue = GetTitleText(), GetRewardText and GetRewardText() or ""
   end
+  local extras={}
+  local function items(category,apiKind,count)
+    if not GetQuestItemInfo then return end
+    for index=1,math.min(count or 0,10) do
+      local name,texture,quantity=GetQuestItemInfo(apiKind,index)
+      table.insert(extras,self:Encode({category,name or "",texture or "",quantity or 1}))
+    end
+  end
+  if kind=="detail" or kind=="reward" then
+    if kind=="detail" then items("choice","choice",GetNumQuestChoices and GetNumQuestChoices() or 0) end
+    items("reward","reward",GetNumQuestRewards and GetNumQuestRewards() or 0)
+    local money=GetRewardMoney and GetRewardMoney() or 0
+    if money>0 then table.insert(extras,self:Encode({"money",self:Money(money),"",1})) end
+    if GetRewardSpell then
+      local texture,name=GetRewardSpell()
+      if name then table.insert(extras,self:Encode({"spell",name,texture or "",1})) end
+    end
+  elseif kind=="progress" then
+    items("required","required",GetNumQuestItems and GetNumQuestItems() or 0)
+    local money=GetQuestMoneyToGet and GetQuestMoneyToGet() or 0
+    if money>0 then table.insert(extras,self:Encode({"required",self:Money(money),"",1})) end
+  end
   -- Keep the NPC's actual text separate from action captions and fingerprints.
   -- This fits the transport budget alongside the six visible choices.
-  return { kind, self.npcName or "NPC", title or "", string.sub(dialogue, 1, 6000), string.sub(objectives, 1, 2000) }
+  local all=self:NPCRows()
+  local close=all[table.getn(all)]
+  return { kind, self.npcName or "NPC", title or "", string.sub(dialogue, 1, 6000), string.sub(objectives, 1, 2000),
+    self.npcGUID or "",tostring(self.npcRevision or 0),table.concat(extras,"\n"),close and close[5] or "" }
 end
 
 function B:TalkToNPC(guid)
@@ -135,6 +163,7 @@ function B:NPCAction(op, index, expected)
   self:StopMovement()
   -- Invalidate immediately: duplicate/double clicks cannot spend twice.
   self.npcRevision = (self.npcRevision or 0) + 1
+  self.npcDirty=true
   self.viewDirty = true
   if op == "accept" or op == "complete" then return self:Invoke(fn) end
   -- Vanilla's quantity argument counts offers; one offer may contain several items.

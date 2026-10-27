@@ -11,6 +11,7 @@
 #include "NativeMove.h"
 #include "NativeWhisper.h"
 #include "LocalIPC.h"
+#include "Activity.h"
 
 namespace {
 uintptr_t base = 0;
@@ -237,16 +238,23 @@ bool whisper(const char *peer, const char *frame) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.8");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.9");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.8");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 7 : 3);
+    response(L, true, "zBoxBridge 0.1.9");
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 8 : 3);
     return 3;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.8; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.9; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
+  }
+  if (!std::strcmp(name,"RefreshActivity")) {
+    if (at<Top>(0x006F3070)(L)!=1) return response(L,false,"Expected no activity arguments");
+    using Clock=uint32_t(__cdecl *)();
+    const bool result=ZBoxRefreshActivity(*at<uint8_t *>(0x00B4B424)!=0,
+      at<uint32_t *>(0x00CF0BC8),at<Clock>(0x0042C010)());
+    return response(L,result,result ? "Linked activity refreshed" : "Player is not in the world");
   }
   if (!std::strcmp(name, "inputs")) {
     int mask = 0; float heading = 0;

@@ -101,6 +101,7 @@ local controlMacros = {
   assist = { "Assist", "Interface\\Icons\\Ability_Hunter_Assist" },
   move = { "Move", "Interface\\Icons\\Ability_Rogue_Sprint" },
   stop = { "STOP", "Interface\\Icons\\Spell_Nature_TimeStop" },
+  talk = { "Talk", "Interface\\Icons\\INV_Misc_Note_01" },
 }
 
 function B:UseControl(kind)
@@ -115,6 +116,9 @@ function B:UseControl(kind)
   elseif kind == "follow" then return self:FollowCommand()
   elseif kind == "assist" then return self:AssistCommand()
   elseif kind == "stop" then return self:Command("STOP")
+  elseif kind == "talk" then
+    if not self.UI then return false,"The NPC window is unavailable" end
+    return self.UI:Talk()
   elseif kind == "move" then
     if not self.UI then return false, "The movement picker is unavailable" end
     self.UI:ArmMove(); return true

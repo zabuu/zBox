@@ -155,7 +155,9 @@ function U:Create()
   f:SetScript("OnShow", function() U:UpdateVisibility() end)
   table.insert(UISpecialFrames, "zBoxPanel")
   label(f, "zBox", 11, 12, -8, 36):SetTextColor(0.35, 0.9, 0.8)
-  self.connection = label(f, "Not paired", 10, 52, -9, 250)
+  self.connection = label(f, "Not paired", 10, 52, -9, 200)
+  self.talkButton=compactButton(f,"Talk",254,-4,50,function() U:Talk() end)
+  self:EnableControlDrag(self.talkButton,"talk")
   compactButton(f, "More", 310, -4, 52, function() U:ToggleBrowser() end)
   compactButton(f, "Keys", 366, -4, 44, function() U:ShowKeys() end)
   compactButton(f, "Setup", 414, -4, 48, function() U:ShowSetup() end)
@@ -177,6 +179,11 @@ function U:Create()
   end)
   self.restoreButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
   self.restoreButton:Hide()
+  self.miniTalkButton=compactButton(UIParent,"Talk",0,0,42,function() U:Talk() end)
+  self.miniTalkButton:ClearAllPoints()
+  self.miniTalkButton:SetPoint("LEFT",self.restoreButton,"RIGHT",3,0)
+  self.miniTalkButton:SetFrameStrata("DIALOG");self.miniTalkButton:SetClampedToScreen(true)
+  self:EnableControlDrag(self.miniTalkButton,"talk");self.miniTalkButton:Hide()
   self.health = label(f, "Account 2 is not connected", 9, 12, -28, 252)
   self.power = label(f, "", 9, 416, -28, 68)
   self.power:SetJustifyH("RIGHT")
@@ -265,7 +272,7 @@ function U:CreateBrowser()
   for i = 1, table.getn(tabs) do
     local entry = tabs[i]
     local b = button(f, entry[1], 12 + (i - 1) * 68, -10, 64, function()
-      B:Request(this.section, 1); U:Refresh()
+      if this.section=="npc" then U:OpenNPC() else B:Request(this.section, 1); U:Refresh() end
     end)
     b.section = entry[2]; self.tabs[i] = b
   end
@@ -275,7 +282,7 @@ function U:CreateBrowser()
   self.viewTitle = label(f, "", 10, 116, -50, 196)
   self.viewTitle:SetHeight(14)
   self.aux = button(f, "Move pad", 318, -43, 80, function()
-    if B.view == "npc" then U:Run("TALK", { B:GUID("target") })
+    if B.view == "npc" then U:Talk()
     elseif B.view == "quests" then U.questMainOnly = not U.questMainOnly; U.questPage = 1; U:Refresh()
     elseif U.pad:IsShown() then U.pad:Hide() else U.pad:Show() end
   end)
@@ -382,7 +389,8 @@ function U:Tooltip(cell)
     elseif cell.section == "npc" then
       GameTooltip:AddLine(row[4], 0.7, 0.9, 0.85, true)
       if row[9] == "0" then GameTooltip:AddLine("Unavailable", 1, 0.4, 0.3) end
-      if row[6] == "buy" or row[6] == "train" or row[6] == "reward" then GameTooltip:AddLine("Click once to review, then click again to confirm.", 1, 0.8, 0.3, true) end
+      if cell.remoteNPC and row[6]=="reward" then GameTooltip:AddLine("Select this reward, then click Complete Quest.",1,.8,.3,true)
+      elseif row[6] == "buy" or row[6] == "train" or row[6] == "reward" then GameTooltip:AddLine("Click once to review, then click again to confirm.", 1, 0.8, 0.3, true) end
     elseif cell.section == "talents" then
       GameTooltip:AddLine("Rank " .. row[6] .. " / " .. row[7], 1, 1, 1)
       GameTooltip:AddLine("Click to spend ONE talent point on account 2.", 0.5, 0.9, 0.8, true)
@@ -431,11 +439,13 @@ function U:Click(cell, mouse)
     if row[6] == "buy" or row[6] == "train" or row[6] == "reward" then
       if self.npcConfirm ~= row[5] or GetTime() > (self.npcConfirmUntil or 0) then
         self.npcConfirm, self.npcConfirmUntil = row[5], GetTime() + 8
+        if self.npcWindow and self.npcWindow:IsShown() then self.npcWindow.confirm:SetText("Click again to confirm: "..row[3]) end
         B:Notify("Click again to confirm: " .. row[3] .. (tonumber(row[7]) > 0 and (" - " .. B:Money(row[7])) or ""))
         return
       end
     end
     self.npcConfirm = nil
+    if self.npcWindow then self.npcWindow.confirm:SetText("") end
     self:Run("NPC", { row[6], row[1], row[5] })
   elseif cell.section == "actions" then
     if row[2] == "" then return end
@@ -774,6 +784,11 @@ function U:UpdateVisibility()
       self.restoreButton:Show()
     end
   else self.restoreButton:Hide() end
+  if self.miniTalkButton then
+    if B.connected and B.db.role=="control" and not self.frame:IsShown() then self.miniTalkButton:Show()
+    else self.miniTalkButton:Hide() end
+  end
+  if not B.connected and self.npcWindow then self.npcWindow:Hide() end
 end
 
 function U:Minimize()
@@ -819,13 +834,14 @@ local keyRows = {
   { "Turn left", "ZBOX_LEFT" }, { "Turn right", "ZBOX_RIGHT" },
   { "Strafe left", "ZBOX_STRAFELEFT" }, { "Strafe right", "ZBOX_STRAFERIGHT" },
   { "Follow main", "ZBOX_FOLLOW" }, { "Assist main", "ZBOX_ASSIST" }, { "Pet attack", "ZBOX_ATTACK" }, { "Jump", "ZBOX_JUMP" },
+  { "Talk to NPC", "ZBOX_TALK" },
   { "Emergency stop", "ZBOX_STOP" }, { "Show / hide panel", "ZBOX_TOGGLE" }
 }
 
 function U:CreateKeys()
   local f = CreateFrame("Frame", "zBoxKeys", self.frame)
   self.keys, self.keyButtons = f, {}
-  f:SetWidth(396); f:SetHeight(400); f:SetPoint("BOTTOMRIGHT", self.frame, "TOPRIGHT", 0, 5)
+  f:SetWidth(396); f:SetHeight(80+table.getn(keyRows)*24); f:SetPoint("BOTTOMRIGHT", self.frame, "TOPRIGHT", 0, 5)
   f:SetFrameLevel(self.frame:GetFrameLevel() + 20); f:SetClampedToScreen(true)
   f:SetBackdrop(backdrop); f:SetBackdropColor(0.025, 0.035, 0.045, 1); f:EnableMouse(true)
   label(f, "Account 2 keybindings", 13, 14, -15)

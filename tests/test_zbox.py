@@ -11,7 +11,7 @@ import random
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Pet.lua", "Quests.lua", "NPC.lua", "Agent.lua", "UI.lua", "Views.lua"]
+FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Activity.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Pet.lua", "Quests.lua", "QuestProgress.lua", "NPC.lua", "QuestTogether.lua", "Agent.lua", "UI.lua", "Views.lua", "NPCWindow.lua"]
 BOOT = r'''
 clock=10; realm="Private Test"; grouped=true; alive=true; combat=false
 getglobal=function(n) return _G[n] end
@@ -28,7 +28,7 @@ Frame.__index=function(self,key)
  if string.find(key,"^[A-Z]") then return function() end end
 end
 function CreateFrame(kind,name,parent,template)
- local f=setmetatable({scripts={},shown=true,text="",width=100,height=100,level=parent and parent.level+1 or 1,parent=parent,name=name,kind=kind,children={},points={}},Frame)
+ local f=setmetatable({scripts={},shown=true,text="",width=100,height=100,level=parent and parent.level+1 or 1,parent=parent,name=name,kind=kind,template=template,children={},points={}},Frame)
  if parent then table.insert(parent.children,f) end
  mockSerial=(mockSerial or 0)+1;f.mockid=mockSerial
  if name then _G[name]=f end
@@ -38,6 +38,7 @@ function Frame:SetScript(k,fn) self.scripts[k]=fn end
 function Frame:GetScript(k) return self.scripts[k] end
 function Frame:SetText(t) self.text=tostring(t or "") end
 function Frame:GetText() return self.text end
+function Frame:GetName() return self.name end
 function Frame:SetWidth(n) self.width=n end
 function Frame:GetWidth() return self.width end
 function Frame:SetHeight(n) self.height=n end
@@ -77,6 +78,7 @@ function Frame:SetPoint(a,b,c,x,y) self.point={a,b,c,x,y};table.insert(self.poin
 function Frame:ClearAllPoints() self.points={} end
 function Frame:SetFont(path,size) self.fontSize=size end
 function Frame:SetBackdrop(value) self.backdrop=value end
+function Frame:SetBackdropBorderColor(r,g,b,a) self.borderColor={r,g,b,a} end
 function Frame:SetBackdropColor(r,g,b,a) self.background={r,g,b,a} end
 function Frame:SetTextColor(r,g,b,a) self.textColor={r,g,b,a or 1} end
 function Frame:SetJustifyH(value) self.justify=value end
@@ -205,7 +207,7 @@ def endpoint(name, peer, ui=False):
     lua.globals().peerName = peer
     lua.globals().ownGUID = "0x0000000000000001" if name == "Main" else "0x0000000000000002"
     lua.globals().peerGUID = "0x0000000000000002" if name == "Main" else "0x0000000000000001"
-    for name in FILES if ui else [f for f in FILES if f not in {"UI.lua", "Views.lua"}]:
+    for name in FILES if ui else [f for f in FILES if f not in {"UI.lua", "Views.lua", "NPCWindow.lua"}]:
         source = (ROOT / name).read_text(encoding="utf-8")
         lua.compile(source)
         lua.execute(source)

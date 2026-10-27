@@ -2,6 +2,7 @@
   <Binding name="ZBOX_TOGGLE" header="ZBOX">zBox:Slash("")</Binding>
   <Binding name="ZBOX_STOP">zBox:Slash("stop")</Binding>
   <Binding name="ZBOX_MOVE">zBox:Slash("move")</Binding>
+  <Binding name="ZBOX_TALK">zBox:Slash("talk")</Binding>
   <Binding name="ZBOX_FORWARD" runOnUp="true">zBox:HoldDirection("forward", keystate == "down")</Binding>
   <Binding name="ZBOX_BACKWARD" runOnUp="true">zBox:HoldDirection("backward", keystate == "down")</Binding>
   <Binding name="ZBOX_LEFT" runOnUp="true">zBox:HoldDirection("left", keystate == "down")</Binding>

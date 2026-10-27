@@ -5,13 +5,16 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.7.1 | Native bridge 0.1.8 | Windows x86**
+**Addon 0.8.0 | Native bridge 0.1.9 | Windows x86**
 
-Updating from 0.7.0: update zBox and zDNumbers, then `/reload` both characters.
-The bridge DLL is unchanged.
+Updating from 0.7.x: update zBox on both characters. The new addon adds direct
+NPC controls, linked quest pickup/turn-in and shared pfQuest tooltip progress.
+**Bridge 0.1.9 is required for preventing background AFK.** Close both clients,
+copy the updated bundled DLL through Mods > Add DLL, Apply, then restart.
+The other changes work with bridge 0.1.8 after `/reload`. zDNumbers is unchanged.
 
 Update the addon and **game-root bridge DLL on both computers/client folders**,
-then fully restart both clients. Bridge 0.1.8 adds automatic same-computer DLL
+then fully restart both clients. Bridge 0.1.8+ adds automatic same-computer DLL
 communication, bypassing addon whispers locally; `/reload` alone cannot load it.
 Different computers keep the existing code-based addon whisper transport.
 
@@ -58,7 +61,8 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
-This release needs bridge **0.1.8 on both clients** for local DLL communication.
+This release needs bridge **0.1.9 on account 2** for background activity.
+Bridge 0.1.8 on both clients supports local DLL communication.
 Bridge 0.1.7 supports pairing without a party through addon whispers.
 Bridge 0.1.6 supports native click-to-move and Pet controls while grouped.
 Bridge 0.1.5 supports Mirror mode's jump observation. Bridge
@@ -293,7 +297,7 @@ resume when the main enters combat. A target's death ends its chase.
 Cast-time spells stop movement and hold facing until the cast finishes. STOP,
 manual account-2 movement, NPC interaction and a mode change cancel the order.
 
-**Drag or Shift-click Follow, Assist, Attack, Move, or STOP** to put its macro on
+**Drag or Shift-click Follow, Assist, Attack, Move, Talk, or STOP** to put its macro on
 account 1's action bars. Export Follow while in Pet mode for a Pet Follow macro;
 Pet Follow/Assist/Attack macros select Pet mode when used, even after switching
 modes. They use the same saved pairing checks and character macro slots as
@@ -308,6 +312,7 @@ For macros you create yourself, use one command per macro:
 | Pet Attack | `/zbox pet attack` |
 | Click-to-move picker | `/zbox move` |
 | Stop | `/zbox stop` |
+| Talk to NPC | `/zbox talk` |
 
 Unlike exported macros, handwritten slash commands use the currently configured
 pairing rather than storing a particular character and realm.
@@ -342,13 +347,41 @@ on the right; long details scroll. **Main only** lists questlines
 account 2 does not have; **Alt quests** returns to the remote log. Collapsed
 quest headers and the selected quest are restored after reading the log.
 
-For **More > NPC**, target a living friendly NPC on account 1, move account 2
-within six yards, then click **Talk**. Gossip choices, available/current quests,
-quest acceptance, completion and reward choices appear in the panel. Account 2
-must have the NPC loaded and remain within its normal interaction range.
-The parchment shows the NPC's actual gossip, greeting, quest, progress or reward
-text, followed by the available choices. Use the mouse wheel or arrows to scroll
-long conversations. Vendor and trainer entries keep their prices and confirmation.
+Target a living friendly NPC and press **Talk** directly on the dock or next to
+the minimized restore button. No expansion or tab navigation is needed. Drag
+Talk onto your bars to create a macro, use `/zbox talk`, or bind **Talk to NPC**
+in Keys. Account 2 must have the NPC loaded and be within six yards.
+
+Account 2's conversation opens automatically in an independent, movable window,
+including while the dock is minimized. It uses the stock dialogue templates,
+scrollbar and font styles. With the stock/pfUI dialogue skin installed, it uses
+pfUI's public skin helpers and matches the main's window scale and dialogue
+fonts. Its border uses account 2's class colour. Both conversations can remain
+open. The main's dialogue widgets, scripts and protected quest APIs are untouched.
+Other replacement dialogue addons may need a separate skin adapter.
+
+The window shows the NPC's actual gossip, greeting, description, objectives,
+progress and reward text, required items and offered rewards. Gossip/quest lists
+scroll together; vendor and trainer lists have page controls. Accept/Continue
+use the normal bottom button. Select a quest reward, then click Complete Quest.
+You can still open the remote conversation from **More > NPC**.
+
+**Linked quest pickup and turn-in are enabled by default.** When account 1's
+quest log confirms an acceptance or reward turn-in at an NPC, zBox asks account
+2 to do the same quest at that NPC. It checks range, combat, current quest and
+live dialogue eligibility. Missing prerequisites or incomplete objectives do not
+get bypassed. No/one-choice rewards complete automatically; multiple reward
+choices remain open for you to choose separately. Closing account 1's quest
+dialogue without accepting/completing does not issue a quest action. STOP or a
+new manual NPC order cancels a pending linked quest. `/zbox quests off` on the
+controller disables this feature; `/zbox quests on` restores it.
+
+With **pfQuest** enabled, its tooltip progress keeps account 1's original lines
+and adds account 2's independently reported objectives below, labelled by name.
+Only quests currently shared by both characters appear. Quest IDs are preferred
+when available, with level/title matching on stock APIs. Quest logs sync while
+linked even if neither quest panel is open; removals and completion update the
+cached remote progress. Unrelated questlines are not added to these tooltips.
 
 On linked account 2, zBox pauses **_LazyPig** auto-gossip and quest replay/acceptance.
 Automatic junk selling and repair remain enabled. Account 1 keeps its normal behavior. These
@@ -358,11 +391,23 @@ reports the adapter status. Other automation addons need their own integration.
 
 Vendor offers show the price and number of items. Each purchase buys **one
 offer**, including its normal bundle size. Trainer services show cost and
-availability. Click a purchase, training service or reward once to review and
+availability. Click a purchase or training service once to review and
 again within eight seconds to confirm. Stale dialogs, changed prices, duplicate
 requests and insufficient money reject the action. There is no automatic buying,
-training, quest acceptance or reward selection. Vendors currently support buying;
+training or choice between multiple quest rewards. Vendors currently support buying;
 selling, buyback and repair controls are not included.
+
+### Background activity
+
+While account 2 has a live pairing, bridge **0.1.9** refreshes the supported
+client's idle timestamp every 30 seconds on the game thread. This prevents the
+background client entering AFK without moving, jumping or changing its camera.
+An already-set AFK flag is cleared only if the unit API positively reports it.
+The lease stops on disconnect, loading, logout or pairing revocation. Account 1
+is unaffected. `/zbox awake off` on account 2 disables it; `awake on` restores it.
+An older DLL leaves the other features available and reports the required update
+in `/zbox diag`. Restarting alone cannot replace an old game-root DLL: update it
+through the launcher after closing both clients.
 
 ### Mirror movement and mouse heading
 
@@ -444,7 +489,7 @@ this player-source adapter.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
-The expected bridge label is **Native inputs 0.1.8**. An old/missing bridge
+The expected bridge label is **Native inputs 0.1.9**. An old/missing bridge
 reports an update error for protected casts and movement.
 
 Tests run offline fixtures, not a live two-client integration environment. The
@@ -469,6 +514,7 @@ python tests\test_mouse_dependencies.py
 python tests\test_ungrouped.py
 python tests\test_local_transport.py
 python tests\test_feedback_damage.py
+python tests\test_companion_convenience.py
 python tests\test_client_abi.py "<game folder>\WoW.exe"
 powershell -NoProfile -ExecutionPolicy Bypass -File native\build.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_native.ps1
@@ -490,6 +536,10 @@ cooldown subscriptions, remote timer updates and melee movement/aggro
 transitions have dedicated fixtures. Native
 fixtures verify input-context restoration after success, Lua errors, Windows
 exceptions and reentry, and reject an unsupported executable.
+Convenience fixtures cover agent-only activity leases, stock/pfUI NPC windows,
+Talk macros while minimized, independent shared quest progress, and confirmed
+linked quest flows with range/eligibility/reward-choice/cancel safeguards. When
+the sibling pfQuest is installed, its actual tooltip builder is tested too.
 
 `python tests/render_ui.py` renders widget layouts with placeholder icons for
 inspection. They are fixture previews, not live game captures. The layout takes
