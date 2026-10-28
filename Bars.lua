@@ -154,13 +154,14 @@ function B:ToggleBarBinding()
  local s=state();if s.binding then return self:EndBarBinding() end
  if not SetOverrideBindingClick or not ClearOverrideBindings then self:Notify("Independent hotkeys need ClassicAPI's override-binding API. Your WoW bindings were not changed.");return end
  s.binding=true;local _,key=self:BarProfile();s.bindingProfile=key
+ s.capture:ClearAllPoints();s.capture:SetPoint("CENTER",UIParent,"CENTER",0,0);s.capture:SetWidth(1);s.capture:SetHeight(1);s.capture:EnableMouse(false);s.capture:Show();s.capture:EnableKeyboard(true)
  s.bindButton.caption:SetText("Done");self:BindBarKeys(true)
  self.notice="Hover a zBox slot and press a key or side mouse button. Backspace clears; Escape exits."
 end
 function B:HoverBarSlot(slot)
  local s=state();s.hover=slot
  if s.binding then
-  local cell=self.UI.dockCells[slot];s.capture:ClearAllPoints();s.capture:SetAllPoints(cell);s.capture:Show();s.capture:EnableKeyboard(true)
+  local cell=self.UI.dockCells[slot];s.capture:ClearAllPoints();s.capture:SetAllPoints(cell);s.capture:EnableMouse(true);s.capture:Show();s.capture:EnableKeyboard(true)
  end
  self:BarTooltip(slot)
 end
@@ -252,7 +253,7 @@ function U:Create()
   if key then B:CaptureBarKey(key) end
  end)
  capture:SetScript("OnMouseWheel",function() B:CaptureBarKey(arg1>0 and "MOUSEWHEELUP" or "MOUSEWHEELDOWN") end)
- capture:SetScript("OnLeave",function() capture:Hide();capture:EnableKeyboard(false);s.hover=nil;GameTooltip:Hide() end)
+ capture:SetScript("OnLeave",function() capture:EnableMouse(false);s.hover=nil;GameTooltip:Hide() end)
  capture:EnableKeyboard(false);capture:Hide()
  local bind=CreateFrame("Button",nil,self.frame);s.bindButton=bind
  bind:SetWidth(39);bind:SetHeight(20);bind:SetPoint("TOPLEFT",self.frame,"TOPLEFT",211,-4)

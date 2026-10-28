@@ -8,7 +8,7 @@ function B:RemoteProxy(command,slot,stamp,texture,label)
  self.db.proxies=self.db.proxies or {}
  local id,proxy
  for key,value in pairs(self.db.proxies) do
-  if self:Name(value.peer)==self:Name(self.db.peer) and value.realm==self:Realm() and value.command==command and tostring(value.slot)==tostring(slot) then id,proxy=key,value;break end
+  if self:Name(value.peer)==self:Name(self.db.peer) and value.realm==self:Realm() and value.command==command and tostring(value.slot)==tostring(slot) and (command~="SKILL" or value.stamp==stamp) then id,proxy=key,value;break end
  end
  if not id then
   self.db.proxySerial=(self.db.proxySerial or 0)+1;id=tostring(self.db.proxySerial)
