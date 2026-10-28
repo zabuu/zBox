@@ -1,6 +1,7 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.9.2", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.10.0", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
+local function validGUID(value) return type(value)=="string" and string.find(value,"^0x%x+$") end
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
   MoveForwardStart = true, MoveForwardStop = true, MoveBackwardStart = true, MoveBackwardStop = true,
   TurnLeftStart = true, TurnLeftStop = true, TurnRightStart = true, TurnRightStop = true,
@@ -25,8 +26,8 @@ function B:RemoteFeedback(text)
   if not self.lastFeedbackAt or now-self.lastFeedbackAt>=1 then
     self.notice, self.lastFeedbackAt = text,now
   end
-  if self.db.verboseFeedback and (not self.lastFeedbackChatAt or now-self.lastFeedbackChatAt>=5) then
-    self.lastFeedbackChatAt=now;self:Print(text)
+  if self.db.verboseFeedback and (not self.feedbackChatAt or now-self.feedbackChatAt>=5) then
+    self.feedbackChatAt=now;self.lastFeedbackChatAt=now;self:Print(text)
   end
 end
 
@@ -85,13 +86,17 @@ function B:SetPeerGUID(guid)
 end
 
 function B:GUID(unit)
-  if not unit or not UnitExists(unit) then return "" end
-  local exists, guid = UnitExists(unit)
-  if type(guid) == "string" then return guid end
-  if GetUnitGUID then guid = GetUnitGUID(unit) end
-  if type(guid) ~= "string" and UnitGUID then guid = UnitGUID(unit) end
-  if type(guid) == "string" then return guid end
-  return ""
+  if type(unit)~="string" or unit=="" then return "" end
+  -- Raw GUID + "target" is not a portable unit token. For an ungrouped
+  -- driver, use its authenticated target snapshot instead of querying it.
+  if self.peerGUID and unit==self.peerGUID.."target" then return self.mainTargetGUID or "" end
+  local probe=self.dependencyProbe;self.dependencyProbe=true
+  local ok,exists,guid=pcall(UnitExists,unit)
+  local present=ok and exists
+  if present and not validGUID(guid) and GetUnitGUID then local accepted,value=pcall(GetUnitGUID,unit);if accepted then guid=value end end
+  if present and not validGUID(guid) and UnitGUID then local accepted,value=pcall(UnitGUID,unit);if accepted then guid=value end end
+  self.dependencyProbe=probe
+  return present and validGUID(guid) and guid or ""
 end
 
 function B:GetBridgeInfo()
@@ -156,6 +161,7 @@ function B:Diagnostics()
   if self.lastGameError then report = report .. "; last game error=" .. self.lastGameError .. " @ " .. (self.lastGameErrorCall or "between zBox calls") end
   if self.lastRemoteError then report=report.."; last remote error="..self.lastRemoteError end
   if self.lastUnstuckResult then report=report.."; unstuck="..self.lastUnstuckResult end
+  if self.lastMacroTarget then report=report.."; mouseover macro target="..self.lastMacroTarget end
   if info.ready then
     local ok, result, detail = pcall(zBoxNative, "status")
     if ok and result == 1 then report = report .. "; " .. tostring(detail) end
@@ -231,6 +237,8 @@ function B:Disconnect(reason)
   self.connected, self.session, self.lastReceive = false, nil, nil
   self.peerGUID = nil
   self.peerVersion=nil
+  self.mainTargetGUID,self.lastMainTargetID=nil,nil
+  self.independentDock=nil
   if self.RestoreNPCGuards then self:RestoreNPCGuards() end
   self.cache, self.pending, self.incoming = {}, {}, {}
   self.queueHigh, self.queueLow, self.lowIndex, self.highIndex = {}, {}, 1, 1

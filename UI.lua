@@ -249,7 +249,7 @@ function U:Create()
   self:EnableControlDrag(self.stackButton,"stack")
   self.stackButton:SetScript("OnEnter",function()
     GameTooltip:SetOwner(this,"ANCHOR_TOP");GameTooltip:SetText("Mirror Stack: "..(B.db.mirrorStack and "ON" or "OFF"))
-    GameTooltip:AddLine("Toggle periodic centering on account 1 (every two seconds). Keeps the main's heading.",.7,.9,.85,true)
+    GameTooltip:AddLine("Periodically face account 1 and run forward to stack, then match its heading again.",.7,.9,.85,true)
     GameTooltip:AddLine("Stand still briefly for the closest alignment. Casts, Mirror pause and STOP suspend corrections.",.7,.9,.85,true)
     GameTooltip:AddLine("Drag or Shift-click to put this toggle on your action bar.",1,.8,.3,true);GameTooltip:Show()
   end)
@@ -472,10 +472,10 @@ function U:Click(cell, mouse)
     self:Run("NPC", { row[6], row[1], row[5] })
   elseif cell.section == "actions" then
     if row[2] == "" then return end
-    self:Run("ACTION", { row[1], row[4], B:TargetDescriptor(mouse == "RightButton") })
+    self:Run("ACTION", { row[1], row[4], B:TargetDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
   elseif cell.section == "spells" then
     if row[6] == "1" then B:Notify("That spell is passive"); return end
-    self:Run("SPELL", { row[1], row[5], B:TargetDescriptor(mouse == "RightButton") })
+    self:Run("SPELL", { row[1], row[5], B:TargetDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
   elseif cell.section == "bags" then
     if row[8] == "" then return end
     if mouse == "RightButton" then
@@ -547,7 +547,7 @@ function U:Refresh()
   self.selectionText:ClearAllPoints()
   self.selectionText:SetPoint("TOPLEFT", self.browser, "TOPLEFT", 12, -99 - bodyHeight - 9)
   self.barPage:SetText(tostring(B.actionPage) .. "/10")
-  local modes = { TARGET = "Main's target", MAIN = "Main character", SELF = "Account 2", KEEP = "Alt's target" }
+  local modes = { TARGET = "Main's target", MAIN = "Main character", SELF = "Account 2", KEEP = "Alt's target", MOUSEOVER="Mouseover" }
   self.targetMode.caption:SetText(modes[B.targetMode])
   local bar = B.cache.bar
   for i = 1, 12 do

@@ -11,7 +11,7 @@ import random
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Activity.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Stack.lua", "Pet.lua", "Quests.lua", "QuestProgress.lua", "NPC.lua", "QuestTogether.lua", "Agent.lua", "UI.lua", "Views.lua", "NPCWindow.lua", "Trade.lua", "FreeBars.lua", "Vitals.lua", "Roster.lua"]
+FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Activity.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Stack.lua", "Pet.lua", "Quests.lua", "QuestProgress.lua", "NPC.lua", "QuestTogether.lua", "Agent.lua", "UI.lua", "Views.lua", "NPCWindow.lua", "Trade.lua", "FreeBars.lua", "Vitals.lua", "Targeting.lua", "Bars.lua", "Roster.lua"]
 BOOT = r'''
 clock=10; realm="Private Test"; grouped=true; alive=true; combat=false
 getglobal=function(n) return _G[n] end
@@ -200,14 +200,15 @@ end
 '''
 
 
-def endpoint(name, peer, ui=False):
+def endpoint(name, peer, ui=False, independent=False):
     lua = LuaRuntime(unpack_returned_tuples=True)
     lua.execute(BOOT)
     lua.globals().ownName = name
     lua.globals().peerName = peer
     lua.globals().ownGUID = "0x0000000000000001" if name == "Main" else "0x0000000000000002"
     lua.globals().peerGUID = "0x0000000000000002" if name == "Main" else "0x0000000000000001"
-    for name in FILES if ui else [f for f in FILES if f not in {"UI.lua", "Views.lua", "NPCWindow.lua"}]:
+    files=[f for f in FILES if independent or f!="Bars.lua"]
+    for name in files if ui else [f for f in files if f not in {"UI.lua", "Views.lua", "NPCWindow.lua", "Bars.lua"}]:
         source = (ROOT / name).read_text(encoding="utf-8")
         lua.compile(source)
         lua.execute(source)
@@ -305,7 +306,7 @@ print("PASS: pipe-free/control-free packets preserve item links, empty fields, n
 p.command('zBox:Command("ACTION", {1,zBox.cache.view.rows[1][4],zBox:TargetDescriptor()})')
 assert call_count(p.alt, "UseAction") == 1
 assert call_count(p.main, "UseAction") == 0
-assert call_count(p.alt, "TargetUnit") == 1
+assert call_count(p.alt, "TargetUnit") == 0  # Already selected: do not re-target needlessly.
 assert p.alt.globals().zApiTargetCalls == 0, "Casting must not enter zAPI's unsafe GUID target setter"
 packet = [x for x in p.history if "~CMD~" in x[2]][-1]
 dst, prefix, message, channel, sender = packet
@@ -342,7 +343,7 @@ target_pair.command('zBox:Command("SPELL",{1,zBox.cache.view.rows[1][5],"0x00000
 assert call_count(target_pair.alt, "CastSpell") == 1
 assert target_pair.alt.globals().zApiTargetCalls == 0
 target_pair.alt.execute('TargetUnit=function() error("Fixture: target API failed") end')
-target_pair.command('zBox:Command("SPELL",{1,zBox.cache.view.rows[1][5],"0x0000000000000099"})')
+target_pair.command('zBox:Command("SPELL",{1,zBox.cache.view.rows[1][5],"0x0000000000000098"})')
 assert call_count(target_pair.alt, "CastSpell") == 1
 assert "target API failed" in target_pair.main.globals().zBox.notice
 print("PASS: action/spell GUID targeting avoids the crash-prone native setter; failed or unconfirmed target switches cannot cast")

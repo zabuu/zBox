@@ -29,8 +29,8 @@ function B:StackTarget(enabled,x,y,z)
   return {x=x,y=y,z=z}
 end
 
--- Correct with ordinary forward/back/strafe inputs relative to the main's
--- heading. No position writes, follow offset, speed changes or camera turns.
+-- Face the main and run forward during a correction, then restore its heading.
+-- No position writes, follow offset, speed changes or camera turns.
 -- A pulse lasts at most a second and starts no more than once every two seconds.
 function B:MirrorStackMask(input,now)
   local target=input.stack
@@ -72,12 +72,7 @@ function B:MirrorStackMask(input,now)
   if now-state.progressAt>.65 then
     state.active=nil;self.lastStackStatus="no closing progress";return input.mask
   end
-  local c,s=math.cos(input.heading),math.sin(input.heading)
-  local forward,left=dx*c+dy*s,-dx*s+dy*c
-  local deadzone=tolerance*.7
-  local mask=0
-  if math.abs(forward)>deadzone then mask=forward>0 and 1 or 2 end
-  if math.abs(left)>deadzone then mask=mask+(left>0 and 16 or 32) end
+  local heading=math.mod(math.atan2(dy,dx)+math.pi*2,math.pi*2)
   self.lastStackStatus="centering"
-  return mask
+  return 1,heading
 end

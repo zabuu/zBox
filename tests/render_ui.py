@@ -109,7 +109,13 @@ def paint(frame):
             draw.rectangle(box, fill=color(frame.color, (35, 48, 55)))
         elif frame.texture:
             row = frame.parent.row
-            if row and row[2] != "":
+            entry=frame.parent.entry
+            if entry:
+                palette={"Alt":(34,83,111),"Beta":(100,65,35),"Main":(50,90,65)}
+                draw.rectangle(box,fill=palette.get(entry.peer,(45,75,85)))
+                title="".join(word[0] for word in entry.label.split())[:2]
+                draw.text((box[0]+6*SCALE,box[1]+6*SCALE),title,font=font(11),fill=(235,235,225))
+            elif row and row[2] != "":
                 index = int(row[1]); palette = [(111,53,32),(34,83,111),(43,96,101),(55,79,111),(76,56,105)]
                 draw.rectangle(box, fill=palette[(index-1) % len(palette)])
                 title = "".join(word[0] for word in row[3].split())[:2]
@@ -245,3 +251,30 @@ zBox:TradeTick(GetTime())
 rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
 tx,ty,tw,th=rect(lua.globals().zBox.tradeUI)
 crop(canvas,tx,ty,tw,th).resize((386,426),Image.Resampling.LANCZOS).save(out/'trade-preview.png')
+
+# The independent production dock uses fresh slots, not the legacy adapter.
+lua=env["endpoint"]("Main","Alt",True,independent=True)
+lua.execute('''
+UIParent.width=1280;UIParent.height=800
+GetSpellCooldown=function() return 0,0,1 end
+zBox:ConfigureRoster({"Alt","Beta"},"testcode123")
+zBox.connected=true;zBox.peerGUID="0x0000000000000002"
+zBox.roster.beta.connected=true
+zBox.cache.status={"status","Alt","30","MAGE","1240","1500","1860","2200","Forest Spider","0","0","0","Idle","Native inputs 0.1.11"}
+zBox.UI:Restore();zBox.UI.setup:Hide();zBox.UI:Refresh();zBox.UI.toast:Hide()
+''')
+rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+fx,fy,fw,fh=rect(lua.globals().zBox.UI.frame)
+scaled_crop(fx,fy,fw,fh).save(out/"independent-blank-preview.png")
+lua.execute('''
+local p=zBox:BarProfile()
+local names={"Fireball","Frostbolt","Heal","Rejuvenation","Hamstring","Shield"}
+for i=1,6 do
+ local owner=i<=2 and "Alt" or (i<=4 and "Beta" or "Main")
+ p.pages[1][i]={peer=owner,realm=realm,command="SKILL",name=names[i],rank="Rank 1",label=names[i],icon="SpellIcon"..i}
+ p.bindings[i]=(i>=4 and "S-" or "")..tostring((i-1)%3+1)
+end
+zBox:RenderBar()
+''')
+rects.clear();canvas.paste("#182024",(0,0,canvas.width,canvas.height));paint(lua.globals().UIParent)
+scaled_crop(fx,fy,fw,fh).save(out/"independent-mixed-preview.png")

@@ -97,9 +97,10 @@ function B:SendView(override)
       local start, duration, enabled = GetActionCooldown(slot)
       local remaining = self:Cooldown(start, duration, enabled)
       local usable, noMana = IsUsableAction(slot)
+      local kind,skill,rank,mouseover=self:ActionDetails(slot)
       table.insert(rows, self:Encode({ slot, GetActionTexture(slot) or "", self:ActionLabel(slot),
         self:ActionStamp(slot), GetActionCount(slot) or 0, flag(usable), flag(noMana),
-        string.format("%.2f", remaining), duration or 0, flag(IsCurrentAction(slot)) }))
+        string.format("%.2f", remaining), duration or 0, flag(IsCurrentAction(slot)),kind,skill,rank,mouseover }))
     end
   elseif section == "spells" then
     local total = 0
@@ -415,12 +416,12 @@ function B:Execute(fields)
     local slot = integer(fields[2], 1, 120)
     if not slot or not HasAction(slot) then return false, "This action slot is empty" end
     if fields[3] ~= self:ActionStamp(slot) then return false, "Action bar changed; refresh before clicking again" end
-    return self:RequestCast(command, slot, fields[3], fields[4])
+    return self:RequestCast(command, slot, fields[3], fields[4],fields[5])
   elseif command == "SPELL" then
     local index = integer(fields[2], 1, 960)
     if not index or fields[3] ~= self:SpellStamp(index) then return false, "Spellbook changed; refresh first" end
     if IsPassiveSpell and IsPassiveSpell(index, BOOKTYPE_SPELL or "spell") then return false, "This spell is passive" end
-    return self:RequestCast(command, index, fields[3], fields[4])
+    return self:RequestCast(command, index, fields[3], fields[4],fields[5])
   elseif command == "USEITEM" then
     if self:CursorBusy() then return false, "Clear account 2's cursor first" end
     local bag, slot, reason = self:ValidateBag(fields[2], fields[3], fields[4])

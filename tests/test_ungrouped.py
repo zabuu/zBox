@@ -68,6 +68,7 @@ p.main.execute('zBox:Command("ACTION",{1,zBox.cache.view.rows[1][4],"SELF"})');p
 assert call_count(p.alt,'UseAction')==1 and call_count(p.main,'UseAction')==0
 p.main.execute('assert(zBox:AttackCommand())');p.advance(3,physics=True)
 p.alt.execute('assert(attacking and zBox.petState.guid==enemyGUID);mainCombat=true;ownCombat=true;enemies[enemyGUID].victim=peerGUID;mainTarget=otherGUID')
+p.main.execute('selectedGUID=otherGUID;zBox:SendMainTarget()')
 p.advance(2,physics=True)
 p.alt.execute('assert(zBox.petState.guid==otherGUID and attacking);mainCombat=false;ownCombat=false')
 p.advance(1)

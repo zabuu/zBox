@@ -107,6 +107,19 @@ run(f,p,3)
 assert distance(p)<.13
 print('PASS: Stack is pulsed rather than continuous; live positions/turns update, OFF restores held Mirror inputs and real casts suspend correction/facing')
 
+for heading in [0,.8,math.pi,5.7]:
+    f,p=setup()
+    p.main.globals().facing=heading
+    p.alt.globals().px=3+4*math.cos(heading);p.alt.globals().py=-2+4*math.sin(heading)
+    run(f,p,.1)
+    p.alt.execute('assert(axes.MoveForward and not axes.MoveBackward and not axes.StrafeLeft and not axes.StrafeRight)')
+    expected=(heading+math.pi)%(2*math.pi)
+    assert abs(p.alt.globals().facing-expected)<.001
+    assert distance(p)<3.5  # Closes at forward speed, rather than backpedalling.
+    run(f,p,2.5)
+    assert distance(p)<.13 and abs(p.alt.globals().facing-heading)<.00001
+print('PASS: a follower ahead immediately faces the main, closes at forward speed and restores the main heading after stacking at varied headings')
+
 # Invalid geometry and obstructions do not authorize extra movement. A blocked
 # client releases the correction after its short progress watchdog.
 for condition in ['stackBlocked=true','px=100','pz=8','zBox.Position=function() return nil end','zBox.PeerUnit=function() return nil end']:

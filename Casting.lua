@@ -54,12 +54,16 @@ function B:PerformCast(request)
   if request.duration and request.duration>0 then
     self.castingUntil = math.max(self.castingUntil or 0, GetTime() + request.duration + 0.6)
   end
-  if command == "ACTION" then return self:Invoke("UseAction", index, 0, request.target == "SELF" and 1 or nil) end
+  if command == "ACTION" then return self:CastAction(index,request.target=="SELF",request.mouseover,request.target) end
   return self:Invoke("CastSpell", index, BOOKTYPE_SPELL or "spell")
 end
 
-function B:RequestCast(command, index, stamp, target)
-  if command=="ACTION" and IsUsableAction then
+function B:RequestCast(command, index, stamp, target,mouseover)
+  local mouseoverMacro=false
+  if command=="ACTION" then local _,_,_,flag=self:ActionDetails(index);mouseoverMacro=flag=="1" end
+  -- The background client's current mouseover is not the driver's mouseover.
+  -- Evaluate the macro through UseAction only after supplying that context.
+  if command=="ACTION" and IsUsableAction and not mouseoverMacro then
     local ok,usable,resource = pcall(IsUsableAction,index)
     if ok and not usable then return false,resource and "Not enough power for that action" or "That action is not usable yet" end
   elseif command=="SPELL" and IsUsableSpell then
@@ -67,7 +71,7 @@ function B:RequestCast(command, index, stamp, target)
     if ok and not usable then return false,resource and "Not enough power for that spell" or "That spell is not usable yet" end
   end
   local duration = self:CastTime(command, index)
-  local request = { command = command, index = index, stamp = stamp, target = target, duration = duration, at = GetTime() }
+  local request = { command = command, index = index, stamp = stamp, target = target, mouseover=mouseover, duration = duration, at = GetTime() }
   -- Unknown macros must not stop a melee chase speculatively. Actual cast or
   -- channel start events still acquire a movement hold when needed.
   if not duration or duration == 0 then return self:PerformCast(request) end

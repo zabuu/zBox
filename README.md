@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.9.2 | Native bridge 0.1.11 | Windows x86**
+**Addon 0.10.0 | Native bridge 0.1.11 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -56,16 +56,54 @@ specific connection. Changes to either offer invalidate stale requests. A
 follower trading someone else opens an independent, class-bordered preview
 with both offers, money, acceptance state and Accept/Cancel controls.
 
-### Remote skills without macro slots
+### Independent action bars and bindings
 
-With **pfUI bars**, drag a follower's skill from Actions or Spellbook to an
-**empty** bar slot. It uses no macro slots, supports that bar's existing bindings,
-and shows remote cooldowns. It stays assigned to its original follower when you
-select another. Right-click/Alt-click targets the skill's owner; Shift-drag moves
-a slot and Shift-right-click removes it. Escape cancels a drag. A native local
-action placed in that slot takes priority and clears the remote assignment.
-`/zbox bars macro` restores macro dragging; `/zbox bars direct` selects direct
-pfUI slots. Stock Blizzard bars continue to use the existing macro method.
+The dock now starts with **fresh blank zBox slots**, independent of WoW's action
+bars. Open More > Spells on a linked character and drag skills into the dock;
+switch the selected character and drag more skills to combine several owners on
+one bar. You can also drag a spell from the driver's own spellbook. Normal
+spells are saved by name/rank, so changing a source action bar or spellbook slot
+does not change the assigned skill. Source macros remain validated references to
+their owner's original action slot. Standard and SuperMacro mouseover macros are
+identified in tooltips; their source text is never transmitted for evaluation.
+
+Each selected linked character has its own saved ten-page bar, bindings and cast
+target mode, keyed by character and realm on the driver. Reconnecting that
+character restores its layout. Slots remember their original skill owner even
+when the bar contains several characters. Page arrows wrap **10 -> 1** and
+**1 -> 10**. Shift-drag swaps/moves entries; Shift-right-click removes an entry;
+Escape cancels a drag. Right-click or Alt-click targets the skill's owner.
+
+Click **Bind**, hover a slot and press a key, modified click, side mouse button
+or wheel. Backspace/Delete clears its binding; Escape or Done finishes. Bindings
+apply to that bar position on every page. They are stored in zBox and use
+ClassicAPI's temporary override layer: **WoW's saved hotkeys are never rewritten
+or saved**. A shared key temporarily goes to zBox while linked, and its original
+WoW action returns when the link is disabled or the profile changes. The tooltip
+shows conflicts. Bindings keep working while zBox is minimized. The existing
+Keys window remains the movement/utility binding editor; Bind belongs to the
+independent action bar.
+
+The old pfUI-slot adapter is no longer installed automatically. Existing exported
+macros are preserved for compatibility. No existing bars are imported into the
+new layouts. Action-bar snapshots are requested only while browsing the source
+Actions view; the independent dock watches cooldowns for its assigned skills.
+The installed ClassicAPI provides SetOverrideBindingClick/ClearOverrideBindings.
+Update zBox and `/reload` on **every client**. Bridge **0.1.11 is unchanged**.
+
+### Targeting and quiet feedback
+
+Cast modes are Main's target, Main character, Skill owner, Owner's target and
+Mouseover. For detected mouseover macros, zBox briefly supplies the driver's
+mouseover (or the selected cast target) to the owner client and restores its
+previous mouseover afterward. This needs SetMouseoverUnit from Nampower/SuperWoW.
+Absent/unloaded units are rejected before a cast. Macro edits invalidate stale
+buttons rather than silently executing a changed macro.
+
+Ungrouped Pet target tracking uses authenticated driver target snapshots, rather
+than invalid raw-GUID-plus-target unit strings. Passive failed unit lookups no
+longer turn into relayed game-error spam. This upgrade resets feedback to quiet;
+`/zbox feedback verbose` still enables throttled diagnostic chat across followers.
 
 ### Companion addon integration
 
@@ -307,26 +345,12 @@ available. Once unlinked, **x** can close the panel completely.
 Click the cast-target button to cycle between account 1's target, account 1,
 account 2, and account 2's current target. Right-click a skill to target account 2.
 
-### Put remote skills on your own bars
+### Place skills on zBox bars
 
-Drag an active action or a spell from **More > Spells** onto account 1's action
-bars. Shift-click is an alternative way to pick one up. zBox
-creates a character macro with its icon. Click that macro, or use its normal
-bar keybinding, to request the skill on account 2. Hold Alt when using the macro
-to target account 2; otherwise it uses the selected zBox target mode.
-
-Each export uses one of Vanilla's eighteen character macro slots. Dragging the
-same remote slot again reuses its macro. Existing macros are never deleted or
-overwritten to make room. Exported skill macros show account 2's cooldown swipe
-and countdown on **pfUI and standard Blizzard action bars**, including paged and
-side bars. Account 2 reports cooldown changes for exported actions and spellbook
-skills even when they are used directly in its own client. Timers work with the
-zBox dock minimized and count down locally between updates. Other bar addons
-need their own adapter. The zBox strip retains remote usability information.
-
-If account 2 rearranges an action slot or its spellbook, re-drag the skill to
-refresh the saved action stamp. Macros remain tied to the paired character and
-realm across reloads. Dragging a skill never casts it.
+Use the independent dock and Bind button described above. Skills can be mixed
+across linked owners, and saved layouts return with the selected linked character.
+Previously exported macros on WoW/pfUI bars remain usable; new skill drags go to
+zBox's own slots without consuming macro slots or rewriting WoW's bindings.
 
 ### Pet controls and control macros
 
@@ -496,8 +520,8 @@ Follow and NPC controls also pause it. The panel may remain hidden.
 **Stack OFF / Stack ON** appears beside the Mirror button. Turn it on to pulse
 account 2 toward account 1's live XY position every two seconds. It is off by
 default and the preference is saved per character. Each correction runs for at
-most one second, using forward/backward/strafe inputs relative to the main's
-heading, then returns to ordinary Mirror inputs. Small drift is left alone once
+most one second, facing the main and running forward to close the gap, then restores the main's
+heading and ordinary Mirror inputs once aligned or the pulse ends. Small drift is left alone once
 within the input frame's arrival tolerance, avoiding jitter around the goal.
 Standing still briefly gives the closest overlap; moving clients, latency and
 different movement speeds can still leave a small gap.
@@ -598,6 +622,7 @@ python tests\test_feedback_damage.py
 python tests\test_companion_convenience.py
 python tests\test_mirror_stack.py
 python tests\test_roster_trade_bars.py
+python tests\test_independent_bars.py
 python tests\test_unstuck.py
 powershell -NoProfile -ExecutionPolicy Bypass -File tests\test_local_bank.ps1
 python tests\test_client_abi.py "<game folder>\WoW.exe"

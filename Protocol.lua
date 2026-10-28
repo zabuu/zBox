@@ -278,7 +278,7 @@ function B:Message(kind, fields, id, now)
         if fields[2]~="1" then self:Print("Unstuck on "..self.db.peer..": "..tostring(fields[3])) end
       end
       if pending.command == "MIRROR" and fields[2] ~= "1" then self:Command("STOP") end
-      local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL") and
+      local castConfirmed = (pending.command == "ACTION" or pending.command == "SPELL" or pending.command=="SKILL") and
         fields[2] == "1" and self.lastCastFeedbackAt and self.lastCastFeedbackAt >= pending.at and now - self.lastCastFeedbackAt < 2
       local quiet = fields[2] == "1" and (pending.command == "AXES" or pending.command == "AXIS" or pending.command == "MIRROR")
       if fields[2]=="1" and not castConfirmed and not quiet then self.notice = pending.command .. ": " .. tostring(fields[3]) end
@@ -286,7 +286,7 @@ function B:Message(kind, fields, id, now)
     end
   elseif kind == "ERROR" and self.db.role == "control" and self.connected then
     self.lastReceive = now
-    self:RemoteFeedback("Account 2: " .. tostring(fields[1]))
+    self:RemoteFeedback((self.db.peer or "Follower")..": "..tostring(fields[1]))
   end
   if self.UI then self.UI.dirty = true end
 end
@@ -308,7 +308,7 @@ function B:Tick(now, elapsed)
     self.lastHello = now
   end
   if self.connected and now - self.lastHeartbeat >= 0.8 then
-    self:Send("PING", {}, true)
+    self:Send("PING",self.db.role=="control" and {self:GUID("target")} or {},true)
     self.lastHeartbeat = now
   end
   if self.connected and self.db.role == "agent" then

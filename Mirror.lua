@@ -80,13 +80,14 @@ function B:MirrorAgentTick(now)
     if self.mirrorStack then self.mirrorStack.active,self.mirrorStack.nextPulse=nil,now+.25 end
     return
   end
-  local ok, result = pcall(zBoxNative, "SetHeading", input.heading)
+  local mask,heading=self:MirrorStackMask(input,now)
+  local ok, result = pcall(zBoxNative, "SetHeading", heading or input.heading)
   if not ok or result ~= 1 then
     self:StopMovement(); self:Send("ERROR", { "Mirror heading failed; movement stopped" }, true); return
   end
   -- ManualAxes handles the normal lease and opposing-key checks. Preserve the
   -- stream so it can renew input without invoking follow.
-  self:ManualAxes(self:MirrorStackMask(input,now),true)
+  self:ManualAxes(mask,true)
 end
 
 function B:ResetMirrorJump()

@@ -3,8 +3,8 @@ from test_zbox import endpoint, call_count, MACROS
 from pathlib import Path
 
 class Team:
-    def __init__(self):
-        self.clients={n:endpoint(n,'Alt' if n=='Main' else 'Main',True) for n in ['Main','Alt','Beta']}
+    def __init__(self,independent=False):
+        self.clients={n:endpoint(n,'Alt' if n=='Main' else 'Main',True,independent=independent) for n in ['Main','Alt','Beta']}
         self.time=10;self.wire=[];self.history=[];self.off=set()
         for n,lua in self.clients.items():
             lua.globals().ownGUID=f'0x{list(self.clients).index(n)+1:016x}'

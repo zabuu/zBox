@@ -13,7 +13,6 @@ function B:MacroProxy(index,anyPeer)
 end
 
 function B:SyncCooldownWatches(now)
-  if not GetMacroInfo then return end
   local rows, watches = {}, {}
   for index = 1, 36 do
     local id, proxy = self:MacroProxy(index)
@@ -22,13 +21,22 @@ function B:SyncCooldownWatches(now)
       table.insert(rows, self:Encode({id,proxy.command,proxy.slot,proxy.stamp}))
     end
   end
-  for _,id in pairs(self.db.barSlots or {}) do
+  for _,id in pairs(not self.independentBars and self.db.barSlots or {}) do
     local proxy=self.db.proxies and self.db.proxies[id]
     if proxy and not watches[id] and proxy.realm==self:Realm() and self:Name(proxy.peer)==self:Name(self.db.peer) then
       watches[id]={command=proxy.command,slot=proxy.slot,stamp=proxy.stamp}
       table.insert(rows,self:Encode({id,proxy.command,proxy.slot,proxy.stamp}))
     end
   end
+  local active=self.independentBars and self.independentBars.profile
+  local profile=active and self.db.barProfiles and self.db.barProfiles[active]
+  for _,entries in pairs(profile and profile.pages or {}) do for _,entry in pairs(entries) do
+    local id=entry.watch;local proxy=id and self.db.proxies and self.db.proxies[id]
+    if proxy and not watches[id] and self:Name(proxy.peer)==self:Name(self.db.peer) then
+      watches[id]={command=proxy.command,slot=proxy.slot,stamp=proxy.stamp}
+      table.insert(rows,self:Encode({id,proxy.command,proxy.slot,proxy.stamp}))
+    end
+  end end
   table.sort(rows)
   local payload = table.concat(rows, "\n")
   local changed = payload ~= self.cooldownWatchPayload
@@ -50,9 +58,10 @@ function B:AcceptCooldownWatches(fields, id)
   for _, encoded in ipairs(rows) do
     local row = self:Decode(encoded)
     local maximum = row[2] == "ACTION" and 120 or (row[2] == "SPELL" and 960)
-    if table.getn(row)~=4 or not self.Integer(row[1],1,2147483647) or not maximum or
-       not self.Integer(row[3],1,maximum) or not self.Integer(row[4],0,2147483647) or watches[row[1]] then return end
-    watches[row[1]] = { command=row[2],slot=tonumber(row[3]),stamp=row[4] }
+    local skill=row[2]=="SKILL" and type(row[3])=="string" and string.len(row[3])>0 and string.len(row[3])<=180 and string.len(row[4] or "")<=80
+    if table.getn(row)~=4 or not self.Integer(row[1],1,2147483647) or watches[row[1]] then return end
+    if not skill and (not maximum or not self.Integer(row[3],1,maximum) or not self.Integer(row[4],0,2147483647)) then return end
+    watches[row[1]] = { command=row[2],slot=skill and row[3] or tonumber(row[3]),stamp=row[4] }
   end
   self.agentCooldownWatches, self.agentCooldownToken, self.lastWatchID = watches, fields[1], id
   self.agentCooldownSignature, self.lastAgentCooldownAt, self.nextAgentCooldownCheck = nil, nil, nil
@@ -63,13 +72,14 @@ function B:SendWatchedCooldowns(now)
   self.nextAgentCooldownCheck = now+0.1
   local rows, signature = {}, {}
   for id, watch in pairs(self.agentCooldownWatches) do
+    local skill=watch.command=="SKILL" and self:FindSkill(watch.slot,watch.stamp)
     local valid = watch.command == "ACTION" and HasAction(watch.slot) and self:ActionStamp(watch.slot)==watch.stamp or
-      watch.command == "SPELL" and self:SpellStamp(watch.slot)==watch.stamp
+      watch.command == "SPELL" and self:SpellStamp(watch.slot)==watch.stamp or skill
     local start, duration, enabled = 0,0,1
     local api = watch.command == "ACTION" and GetActionCooldown or GetSpellCooldown
     if valid and type(api)=="function" then
       local ok
-      ok,start,duration,enabled = pcall(api,watch.slot,BOOKTYPE_SPELL or "spell")
+      ok,start,duration,enabled = pcall(api,skill or watch.slot,BOOKTYPE_SPELL or "spell")
       valid = ok and finite(start,1e12) and finite(duration,604800)
     else valid = false end
     if not valid or enabled == 0 then start,duration=0,0 end
@@ -158,7 +168,7 @@ function B:PaintMacroCooldowns(now)
       if slot and GetActionInfo then kind,macro=GetActionInfo(slot) end
       if kind=="macro" then id=self:MacroProxy(macro,true)
       elseif slot and GetActionText and GetMacroIndexByName then id=self:MacroProxy(GetMacroIndexByName(GetActionText(slot) or ""),true) end
-      if not id and source.pf and slot and not HasAction(slot) then id=self.db.barSlots and self.db.barSlots[slot] end
+      if not self.independentBars and not id and source.pf and slot and not HasAction(slot) then id=self.db.barSlots and self.db.barSlots[slot] end
     end
     local proxy=id and self.db.proxies and self.db.proxies[id]
     local owner=proxy and self.FollowerState and self:FollowerState(proxy.peer) or self

@@ -4,7 +4,7 @@ local B=zBox
 local shared={version=true,prefix=true,frame=true,UI=true,db=true,ready=true,clock=true,worldSuspended=true,
  bridgeInfo=true,roster=true,rosterOrder=true,rosterCurrent=true,rosterBackground=true,rosterSending=true,
  rosterUI=true,macroIcons=true,cooldownButtons=true,freeBars=true,freeCursor=true,tradeUI=true,tradeEvents=true,
- vitalsProvider=true,damageBridge=true,tradeButton=true,bagMenu=true,rosterTick=true}
+ vitalsProvider=true,damageBridge=true,tradeButton=true,bagMenu=true,rosterTick=true,independentBars=true,feedbackChatAt=true}
 local inputs={"heldInputs","heldMask","heldModifiers","lastHeldAt","mirrorPaused","lastMirrorAt","lastMirrorJump",
  "lastMirrorMask","lastMirrorHeading","lastStackX","lastStackY","lastStackZ","lastStackEnabled"}
 for _,key in ipairs(inputs) do shared[key]=true end
@@ -100,7 +100,9 @@ function B:ConfigureRoster(names,key)
  self:RetireFollowers()
  local ok,reason=configure(self,"control",names[1],key)
  if not ok then return ok,reason end
- self.db.peers=names;self:BuildRoster(names)
+ self.db.peers=names
+ if self.independentBars then self.view,self.page,self.actionPage="spells",1,nil end
+ self:BuildRoster(names)
  return true
 end
 function B:BuildRoster(names)
@@ -112,7 +114,8 @@ function B:BuildRoster(names)
   if self:Name(name)~=self.rosterCurrent then
    local state={cache={},pending={},incoming={},queueHigh={},queueLow={},lowIndex=1,highIndex=1,
     sendID=0,receiveCommandID=0,connected=false,session=self:NewSession(),lastHello=-10,lastHeartbeat=-10,lastStatus=-10,
-    view="actions",page=1,actionPage=1,targetMode="TARGET"}
+    view=self.independentBars and "spells" or "actions",page=1,actionPage=1,targetMode="TARGET"}
+   if self.independentBars then state.actionPage=nil end
    self.roster[self:Name(name)]=state
   else self.roster[self:Name(name)]=original end
  end
