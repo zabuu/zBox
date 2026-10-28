@@ -419,7 +419,7 @@ function U:Tooltip(cell)
       GameTooltip:AddLine("Click to spend ONE talent point on account 2.", 0.5, 0.9, 0.8, true)
       GameTooltip:AddLine("Normal level, tier and prerequisite rules apply.", 0.8, 0.8, 0.8, true)
     elseif cell.section == "actions" or cell.section == "spells" then
-      GameTooltip:AddLine("Click: cast. Right-click: self. Drag: add to your own bars.", 0.5, 0.9, 0.8, true)
+      GameTooltip:AddLine("Click: cast (friendly skills target main). Right-click: self. Drag: add to zBox bars.", 0.5, 0.9, 0.8, true)
     end
   end
   GameTooltip:Show()
@@ -472,10 +472,10 @@ function U:Click(cell, mouse)
     self:Run("NPC", { row[6], row[1], row[5] })
   elseif cell.section == "actions" then
     if row[2] == "" then return end
-    self:Run("ACTION", { row[1], row[4], B:TargetDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
+    self:Run("ACTION", { row[1], row[4], B:ClickDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
   elseif cell.section == "spells" then
     if row[6] == "1" then B:Notify("That spell is passive"); return end
-    self:Run("SPELL", { row[1], row[5], B:TargetDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
+    self:Run("SPELL", { row[1], row[5], B:ClickDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
   elseif cell.section == "bags" then
     if row[8] == "" then return end
     if mouse == "RightButton" then

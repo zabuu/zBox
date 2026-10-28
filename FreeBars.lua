@@ -80,7 +80,7 @@ function B:UseProxy(id,selfCast)
   local ok,reason=self:UseControl(proxy.slot);if not ok then self:Notify(reason) end
   return ok,reason
  end
- local descriptor,mouseover=self:TargetDescriptor(selfCast or (IsAltKeyDown and IsAltKeyDown())),self:GUID("mouseover")
+ local descriptor,mouseover=self:ClickDescriptor(selfCast or (IsAltKeyDown and IsAltKeyDown())),self:GUID("mouseover")
  return self:WithFollower(proxy.peer,function(b)
   if proxy.command~="ACTION" and proxy.command~="SPELL" then return end
   local ok,reason=b:Command(proxy.command,{proxy.slot,proxy.stamp,descriptor,mouseover})

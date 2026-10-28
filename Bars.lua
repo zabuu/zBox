@@ -32,11 +32,13 @@ function B:UseBarSlot(slot,selfCast)
  if own then
   local index=entry.command=="SKILL" and self:FindSkill(entry.name,entry.rank)
   if not index then self:RemoteFeedback("That spell/rank is no longer in your spellbook");return false end
+  if not selfCast and self:IsFriendlyCast("SPELL",index) then descriptor="SELF" end
   local ok,why=self:ChooseTarget(descriptor=="MAIN" and "SELF" or descriptor)
   if ok then ok,why=self:Invoke("CastSpell",index,BOOKTYPE_SPELL or "spell") end
   if not ok then self:RemoteFeedback(why) end
   return ok,why
  end
+ if not selfCast then descriptor="LEFT:"..descriptor end
  return self:WithFollower(entry.peer,function(b)
   local fields=entry.command=="SKILL" and {entry.name,entry.rank,descriptor,mouse} or {entry.slot,entry.stamp,descriptor,mouse}
   local ok,why=b:Command(entry.command,fields);if not ok then b:RemoteFeedback(why) end
@@ -170,6 +172,7 @@ function B:BarTooltip(slot)
  local cell=self.UI.dockCells[slot];local p=self:BarProfile();local e=p.pages[p.page][slot];local s=state()
  GameTooltip:SetOwner(cell,"ANCHOR_TOP");GameTooltip:SetText(e and (e.label.." - "..e.peer) or "Empty zBox slot")
  if e and e.rank and e.rank~="" then GameTooltip:AddLine(e.rank,.75,.8,.85) end
+ if e then GameTooltip:AddLine("Friendly skills: left-click main, right-click skill owner.",.65,.85,.85,true) end
  if e and e.mouseover then GameTooltip:AddLine("Mouseover macro: uses your mouseover, then the chosen cast target.",.4,.9,.85,true) end
  if p.bindings[slot] then
   GameTooltip:AddLine("zBox key: "..p.bindings[slot],1,.85,.3)

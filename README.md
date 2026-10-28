@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.10.0 | Native bridge 0.1.11 | Windows x86**
+**Addon 0.10.1 | Native bridge 0.1.11 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -72,7 +72,12 @@ target mode, keyed by character and realm on the driver. Reconnecting that
 character restores its layout. Slots remember their original skill owner even
 when the bar contains several characters. Page arrows wrap **10 -> 1** and
 **1 -> 10**. Shift-drag swaps/moves entries; Shift-right-click removes an entry;
-Escape cancels a drag. Right-click or Alt-click targets the skill's owner.
+Escape cancels a drag. For friendly-target skills such as heals and buffs,
+**left-click targets the driver (account 1)**, regardless of the cast-target
+mode; **right-click or Alt-click targets the skill's owner**. A normal keybind
+uses the left-click behavior. Hostile skills keep the selected target mode.
+Self-only spells keep their normal behavior. Update and reload zBox on every
+linked client for these click rules; bridge 0.1.11 does not need replacing.
 
 Click **Bind**, hover a slot and press a key, modified click, side mouse button
 or wheel. Backspace/Delete clears its binding; Escape or Done finishes. Bindings
@@ -343,7 +348,8 @@ available. Once unlinked, **x** can close the panel completely.
   previously queued commands. `/zbox stop` does the same.
 
 Click the cast-target button to cycle between account 1's target, account 1,
-account 2, and account 2's current target. Right-click a skill to target account 2.
+account 2, and account 2's current target. Friendly-target skills left-click the
+driver; right-click targets the character casting that skill.
 
 ### Place skills on zBox bars
 

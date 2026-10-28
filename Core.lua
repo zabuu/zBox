@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.10.0", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.10.1", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local function validGUID(value) return type(value)=="string" and string.find(value,"^0x%x+$") end
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,

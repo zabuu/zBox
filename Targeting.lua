@@ -14,6 +14,29 @@ function B:FindSkill(name,rank)
   if n==name and (r or "")==rank and not (IsPassiveSpell and IsPassiveSpell(i,BOOKTYPE_SPELL or "spell")) then self.skillIndices[key]=i;return i end
  end
 end
+function B:IsFriendlyCast(command,index)
+ if type(IsHelpfulSpell)~="function" then return false end
+ local spell,book=index,BOOKTYPE_SPELL or "spell"
+ if command=="ACTION" then
+  local kind,id
+  if GetActionInfo then kind,id=GetActionInfo(index) end
+  if kind=="macro" and GetMacroSpell then
+   local ok,_,_,spellID=pcall(GetMacroSpell,id)
+   if not ok then return false end
+   spell,book=spellID,nil
+  elseif kind=="spell" then spell,book=id,nil
+  else return false end
+ end
+ if not spell then return false end
+ local ok,helpful=pcall(IsHelpfulSpell,spell,book)
+ if not ok or (helpful~=true and helpful~=1) then return false end
+ if IsHarmfulSpell then local accepted,harmful=pcall(IsHarmfulSpell,spell,book);if accepted and (harmful==true or harmful==1) then return false end end
+ -- Self-only utility spells have no friendly unit target to redirect.
+ local range
+ if book then range=SpellHasRange else range=C_Spell and C_Spell.SpellHasRange end
+ if range then local accepted,ranged=pcall(range,spell,book);if accepted and (ranged==false or ranged==0) then return false end end
+ return true
+end
 function B:MacroDetails(slot)
  if SM_ACTION and SM_ACTION[slot] and GetSuperMacroInfo then
   local name,_,body=GetSuperMacroInfo(SM_ACTION[slot]);return name,body
@@ -51,6 +74,10 @@ local target=B.TargetDescriptor
 function B:TargetDescriptor(selfCast)
  if not selfCast and self.targetMode=="MOUSEOVER" then return self:GUID("mouseover") end
  return target(self,selfCast)
+end
+function B:ClickDescriptor(selfCast)
+ if selfCast then return "SELF" end
+ return "LEFT:"..self:TargetDescriptor(false)
 end
 local choose=B.ChooseTarget
 function B:ChooseTarget(descriptor)
