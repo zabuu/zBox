@@ -53,6 +53,7 @@ function B:SelectFollower(name)
  local key=self:Name(name)
  if key==self:Name(self.db.peer) then return true end
  if not self.roster or not self.roster[key] then return false end
+ if self.UI then self.UI:EndSkillPress() end
  if self.bagMenu then self.bagMenu:Hide() end
  if self.CancelFreeDrag and self.freeCursor then self:CancelFreeDrag() end
  self.roster[self:Name(self.db.peer)]=capture();apply(self.roster[key])

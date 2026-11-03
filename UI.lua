@@ -148,6 +148,7 @@ function U:Create()
     U:PlacePanels()
   end)
   f:SetScript("OnHide", function()
+    U:EndSkillPress()
     U:CancelMove(); U:ReleaseAxis()
     U.browser:Hide(); U.pad:Hide(); U.setup:Hide(); U.keys:Hide()
     U:UpdateVisibility()
@@ -348,8 +349,13 @@ function U:CreateCell(index, parent, dock)
   cell:SetWidth(dock and 32 or 115); cell:SetHeight(dock and 32 or 43)
   cell:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   cell:RegisterForDrag("LeftButton")
+  cell:SetScript("OnMouseDown", function()
+    if arg1=="LeftButton" and (this.section=="spells" or this.section=="actions") then U.skillPress=this end
+  end)
+  cell:SetScript("OnMouseUp", function() U:EndSkillPress(this) end)
   cell:SetScript("OnDragStart", function() U:Drag(this) end)
   cell:SetScript("OnDragStop", function()
+    U:EndSkillPress(this)
     this.dragging, this.ignoreClickUntil = nil, GetTime() + 0.4
     if B.FinishFreeDrag then B:FinishFreeDrag() end
   end)
@@ -372,6 +378,7 @@ function U:CreateCell(index, parent, dock)
   cell:SetScript("OnEnter", function() U:Tooltip(this) end)
   cell:SetScript("OnLeave", function() U.hovered = nil; GameTooltip:Hide() end)
   cell:SetScript("OnClick", function()
+    U:EndSkillPress(this)
     if not this.dragging and (not this.ignoreClickUntil or GetTime() > this.ignoreClickUntil) then U:Click(this, arg1) end
   end)
   if dock then cell.name:Hide(); cell.sub:Hide() end
@@ -379,10 +386,27 @@ function U:CreateCell(index, parent, dock)
 end
 
 function U:Drag(cell)
+  if cell.section=="spells" or cell.section=="actions" then self.skillPress=cell end
   cell.dragging = true
   cell.ignoreClickUntil = GetTime() + 0.4
   local ok, reason = B:PickupRemote(cell.section, cell.row)
+  if not ok then self:EndSkillPress(cell);cell.dragging=nil end
   if reason then B:Notify(reason) end
+end
+
+function U:EndSkillPress(cell)
+  if self.skillPress and (not cell or self.skillPress==cell) then self.skillPress=nil;self.dirty=true end
+end
+
+function U:SkillPressTick()
+  if not self.skillPress or type(IsMouseButtonDown)~="function" then return end
+  local ok,held=pcall(IsMouseButtonDown,"LeftButton")
+  if not ok or (held and held~=0) then return end
+  local cell=self.skillPress;self:EndSkillPress(cell)
+  if cell.dragging then
+    cell.dragging,cell.ignoreClickUntil=nil,GetTime()+.4
+    if B.FinishFreeDrag then B:FinishFreeDrag() end
+  end
 end
 
 function U:Page(delta)
@@ -502,6 +526,9 @@ end
 function U:Refresh()
   if not self.frame then return end
   self:UpdateVisibility()
+  -- Hiding/reparenting a pressed spell button cancels its native drag. Status
+  -- packets keep updating the cache; repaint the browser after mouse release.
+  if self.skillPress then self.dirty=true;return end
   local view = B.cache.view
   if B.view == "quests" and self.questMainOnly and B.cache.questKeys then
     local all, rows, page = B:MainOnlyQuests(), {}, self.questPage or 1
@@ -546,16 +573,18 @@ function U:Refresh()
   self.aux.caption:SetText(B.view == "npc" and "Talk" or (B.view == "quests" and (self.questMainOnly and "Alt quests" or "Main only") or "Move pad"))
   self.selectionText:ClearAllPoints()
   self.selectionText:SetPoint("TOPLEFT", self.browser, "TOPLEFT", 12, -99 - bodyHeight - 9)
-  self.barPage:SetText(tostring(B.actionPage) .. "/10")
-  local modes = { TARGET = "Main's target", MAIN = "Main character", SELF = "Account 2", KEEP = "Alt's target", MOUSEOVER="Mouseover" }
-  self.targetMode.caption:SetText(modes[B.targetMode])
-  local bar = B.cache.bar
-  for i = 1, 12 do
-    local cell = self.dockCells[i]
-    if bar and bar.page == B.actionPage and bar.rows[i] then self:RenderCell(cell, bar.rows[i], i, "actions")
-    else
-      cell.row = nil; cell.icon:SetTexture("Interface\\PaperDoll\\UI-Backpack-EmptySlot")
-      cell.count:SetText(""); cell.cooldown:SetText("")
+  if not B.independentBars then
+    self.barPage:SetText(tostring(B.actionPage) .. "/10")
+    local modes = { TARGET = "Main's target", MAIN = "Main character", SELF = "Account 2", KEEP = "Alt's target", MOUSEOVER="Mouseover" }
+    self.targetMode.caption:SetText(modes[B.targetMode])
+    local bar = B.cache.bar
+    for i = 1, 12 do
+      local cell = self.dockCells[i]
+      if bar and bar.page == B.actionPage and bar.rows[i] then self:RenderCell(cell, bar.rows[i], i, "actions")
+      else
+        cell.row = nil; cell.icon:SetTexture("Interface\\PaperDoll\\UI-Backpack-EmptySlot")
+        cell.count:SetText(""); cell.cooldown:SetText("")
+      end
     end
   end
   for i = 1, table.getn(self.targetButtons) do
@@ -584,8 +613,8 @@ function U:Refresh()
       self.empty:SetText("This page is empty."); self.empty:Show()
     end
   end
-  local help = { actions = "Click to cast. Right-click for self. Drag a skill onto your own action bars.",
-    spells = "Click to cast. Drag a spell onto your bars. Passive spells cannot be used.",
+  local help = { actions = "Click to cast. Right-click for self. Drag or Shift-click a skill onto the zBox bar.",
+    spells = "Drag or Shift-click an active spell onto the zBox bar. Click to cast; right-click for self.",
     bags = "Left click selects an item for equipping. Right click uses it on account 2.",
     gear = "Select an item in Bags, then click its slot. Right-click gear to unequip.",
     talents = "Click a talent to spend ONE point on account 2. The server checks normal prerequisites.",
@@ -870,6 +899,7 @@ function U:Restore()
 end
 
 function U:Tick(now)
+  self:SkillPressTick()
   self:UpdateVisibility()
   if not self.frame:IsShown() or now - self.lastTick < 0.15 then return end
   self.lastTick = now

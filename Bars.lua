@@ -59,6 +59,7 @@ function B:StartBarDrag(entry,source)
 end
 function B:CancelBarDrag()
  local s=state();s.cursor=nil
+ if self.UI then self.UI:EndSkillPress() end
  if s.cursorFrame then s.cursorFrame:Hide();s.cancel:Hide() end
 end
 function B:PickupRemote(section,row)
@@ -90,6 +91,7 @@ function B:DropBarSlot(slot)
   local origin=self.db.barProfiles[source.key];if origin and origin.pages[source.page] then origin.pages[source.page][source.slot]=old end
  end
  self:CancelBarDrag()
+ s.ignoreClickUntil=GetTime()+.25
  if native and ClearCursor then ClearCursor() end
  self:InvalidateBarWatches();self:RenderBar();return true
 end
@@ -297,6 +299,16 @@ function B:SyncCooldownWatches(now)
   end
  end end
  return cooldowns(self,now)
+end
+local diagnostics=B.Diagnostics
+function B:Diagnostics()
+ local report=diagnostics(self)
+ if self.db.role~="control" then return report end
+ local p,key=self:BarProfile();local visible,total=0,0
+ for page,entries in pairs(p.pages) do for _,entry in pairs(entries) do
+  total=total+1;if page==p.page then visible=visible+1 end
+ end end
+ return report.."; bar profile="..key.."; bar page="..p.page.."/10, slots="..visible.."/"..total.."; skill drag="..(state().cursor and "picked up" or (self.UI and self.UI.skillPress and "pressed" or "none"))
 end
 local initialize=B.Initialize
 function B:Initialize()

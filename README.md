@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.10.1 | Native bridge 0.1.11 | Windows x86**
+**Addon 0.10.2 | Native bridge 0.1.11 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -66,6 +66,11 @@ spells are saved by name/rank, so changing a source action bar or spellbook slot
 does not change the assigned skill. Source macros remain validated references to
 their owner's original action slot. Standard and SuperMacro mouseover macros are
 identified in tooltips; their source text is never transmitted for evaluation.
+
+Status updates leave a pressed/dragged spell button in place until release.
+You can also Shift-click an active spell to pick it up, then click a zBox slot
+to place it. Neither pickup nor drop casts the spell. The independent dock is
+painted only from its saved layout, rather than the former imported-bar cache.
 
 Each selected linked character has its own saved ten-page bar, bindings and cast
 target mode, keyed by character and realm on the driver. Reconnecting that
@@ -600,6 +605,9 @@ this player-source adapter.
 
 **Setup > Diagnostics**, or `/zbox diag`, reports addon/bridge versions, the last
 input request, cast feedback and terrain-picking failures on both characters.
+On the driver it also reports the saved bar profile, page, assigned slots on that
+page versus all pages, and pickup state. Include that output if a previously
+configured bar appears empty; this distinguishes saved-layout and display issues.
 The expected bridge label is **Native inputs 0.1.11**. An old/missing bridge
 reports an update error for protected casts and movement.
 
