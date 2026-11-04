@@ -200,11 +200,12 @@ launcher's **Mods** tab in every game folder used by the two characters:
   the tested GUID-capable unit API. zBox reads and targets raw `0x...` unit GUIDs;
   the client's unit APIs must recognize them. Merely obtaining GUID strings
   through another addon is insufficient.
-- [**zAPI.dll 1.6+**](https://github.com/zabuu/z_DNumbers/blob/main/native/zAPI/build/zAPI.dll):
+- [**zAPI.dll 1.6+**](https://github.com/zabuu/zAPI#installation):
   the custom zAPI used by this setup, for world positions, camera projection and
   terrain traces. This is a separate download; the zBox bridge does not replace
-  it. Its [source and documentation](https://github.com/zabuu/z_DNumbers/tree/main/native/zAPI)
-  are available in the same repository.
+  it. Its [source and installation instructions](https://github.com/zabuu/zAPI)
+  cover the DLL download, placement beside `WoW.exe`, the `dlls.txt` entry and
+  a full restart. One shared copy serves every zSuite addon.
 - [**ClassicAPI.dll**](https://github.com/brues-code/ClassicAPI/releases): supplies
   facing, spell metadata and action helpers used by the full feature set.
 - The working development client also loads
