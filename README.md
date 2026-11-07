@@ -424,6 +424,9 @@ and Keys. Once unlinked, **x** can close the panel completely.
   1.5-5 yards behind and up to 4 yards to either side). Followers walk to their
   spot with native click-to-move (zBoxBridge 0.1.6+), turn with you, and face
   your way once settled. Beyond 40 yards they use normal follow to catch up.
+  Below the icons, **Close** (default) or **Far** sets the distance: Far keeps
+  followers 10 yards out on their spot (8-12 yards for Random, and straight
+  behind for Center) so a hunter can shoot.
   Changing formation while following applies right away.
 - **Move** arms a terrain click. Right-click or Escape cancels; a missed terrain
   trace keeps the picker open. **More > Move pad** has held direction buttons.

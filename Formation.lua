@@ -16,12 +16,29 @@ local valid={};for _,f in ipairs(FORMATIONS) do valid[f[1]]=f end
 -- Offsets in yards: forward (+ ahead of the main), right (+ to its right).
 local OFFSETS={left={-2.5,-2.5},right={-2.5,2.5},front={3,0}}
 B.FORMATION_FALLBACK=40 -- beyond this, use normal follow to catch up
+-- Range: Close (default) or Far, which keeps 8-12 yards away so a hunter can shoot.
+B.FORMATION_FAR={near=8,far=12,fixed=10}
+local RANGES={close="Close",far="Far"}
 
 -- Driver ---------------------------------------------------------------------
 
 function B:Formation()
  local f=self.db and self.db.formation
  return valid[f or ""] and f or "center"
+end
+
+function B:FormationRange()
+ local r=self.db and self.db.formationRange
+ return RANGES[r or ""] and r or "close"
+end
+
+function B:SetFormationRange(range)
+ if not RANGES[range or ""] then return false,"Unknown range" end
+ self.db.formationRange=range
+ self.notice="Formation range: "..RANGES[range]
+ if self.UI and self.UI.UpdateFormationTab then self.UI:UpdateFormationTab() end
+ if self.db.role=="control" and self.connected and self:AnyFollowerFollowing() then self:Command("FOLLOW") end
+ return true
 end
 
 function B:SetFormation(name)
@@ -46,7 +63,11 @@ end
 
 local command=B.Command
 function B:Command(kind,fields)
- if kind=="FOLLOW" then fields=fields or {};if fields[1]==nil then fields[1]=self:Formation() end end
+ if kind=="FOLLOW" then
+  fields=fields or {}
+  if fields[1]==nil then fields[1]=self:Formation() end
+  if fields[2]==nil then fields[2]=self:FormationRange() end
+ end
  return command(self,kind,fields)
 end
 
@@ -54,25 +75,45 @@ end
 
 local execute=B.Execute
 function B:Execute(fields)
- if fields[1]=="FOLLOW" then self.formation=valid[fields[2] or ""] and fields[2] or "center" end
+ if fields[1]=="FOLLOW" then
+  self.formation=valid[fields[2] or ""] and fields[2] or "center"
+  self.formationRange=RANGES[fields[3] or ""] and fields[3] or "close"
+ end
  return execute(self,fields)
 end
 
 -- Random spot in a box behind the main: 1.5-5 yards back, up to 4 yards to
 -- either side (wider than the Left/Right spots), as sketched by Sam.
 B.FORMATION_RANDOM={back1=1.5,back2=5,side=4}
-local function randomOffset()
+local function randomOffset(far)
+ if far then
+  -- 8-12 yards away, anywhere from back-left to back-right.
+  local z=B.FORMATION_FAR
+  local d=z.near+math.random()*(z.far-z.near);local a=(math.random()*2-1)*math.pi/4
+  return {-d*math.cos(a),d*math.sin(a)}
+ end
  local z=B.FORMATION_RANDOM
  return {-(z.back1+math.random()*(z.back2-z.back1)),(math.random()*2-1)*z.side}
+end
+
+-- Fixed spots keep their direction; Far pushes them out to 10 yards.
+local function formationOffset(name,far)
+ if name=="random" then return randomOffset(far) end
+ local o=OFFSETS[name] or {-2,0}
+ if not far then return {o[1],o[2]} end
+ local len=math.sqrt(o[1]*o[1]+o[2]*o[2]);local k=B.FORMATION_FAR.fixed/len
+ return {o[1]*k,o[2]*k}
 end
 
 -- Follow the main in formation instead of the game's follow.
 local invoke=B.Invoke
 function B:Invoke(name,a,b,c)
- if name=="FollowUnit" and self.db.role=="agent" and (self.formation or "center")~="center"
+ local far=self.formationRange=="far"
+ if name=="FollowUnit" and self.db.role=="agent" and ((self.formation or "center")~="center" or far)
     and a and a==self:PeerUnit() and self:GetBridgeInfo().nativeMove then
-  self.formationState={name=self.formation,unit=a,offset=OFFSETS[self.formation] or randomOffset()}
-  return true,"Following in "..valid[self.formation][2].." formation"
+  local formation=self.formation or "center"
+  self.formationState={name=formation,far=far,unit=a,offset=formationOffset(formation,far)}
+  return true,"Following in "..valid[formation][2].." formation"..(far and " (far)" or "")
  end
  return invoke(self,name,a,b,c)
 end
@@ -106,7 +147,7 @@ function B:FormationTick(now)
  end
  local moving=st.mainX and (g.x-st.mainX)^2+(g.y-st.mainY)^2>.15^2
  st.mainX,st.mainY=g.x,g.y
- if moving and not st.mainMoving and st.name=="random" then st.offset=randomOffset() end
+ if moving and not st.mainMoving and st.name=="random" then st.offset=randomOffset(st.far) end
  if moving then st.stillSince=nil elseif st.mainMoving or not st.stillSince then st.stillSince=now end
  st.mainMoving=moving
  local f,r=st.offset[1],st.offset[2]
@@ -147,6 +188,11 @@ function U:UpdateFormationTab()
   for _,b in ipairs(self.formationFlyout.buttons) do
    if b.name==current then b.ring:Show() else b.ring:Hide() end
   end
+  local range=B:FormationRange()
+  for _,b in ipairs(self.formationFlyout.ranges or {}) do
+   if b.range==range then b:SetBackdropColor(.12,.4,.38,1);b:SetBackdropBorderColor(.3,1,.75,1)
+   else b:SetBackdropColor(.05,.08,.1,1);b:SetBackdropBorderColor(.25,.45,.49,1) end
+  end
  end
 end
 
@@ -154,7 +200,7 @@ function U:FormationFlyout()
  if self.formationFlyout then return self.formationFlyout end
  local f=CreateFrame("Frame","zBoxFormations",self.frame)
  f:SetFrameStrata("DIALOG");f:SetFrameLevel(self.frame:GetFrameLevel()+20);f:EnableMouse(true)
- f:SetWidth(12+table.getn(FORMATIONS)*44);f:SetHeight(68)
+ f:SetWidth(12+table.getn(FORMATIONS)*44);f:SetHeight(92)
  f:SetPoint("LEFT",self.formationTab,"RIGHT",2,0)
  f:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
  f:SetBackdropColor(.025,.035,.045,.97);f:SetBackdropBorderColor(.25,.45,.49,1)
@@ -177,6 +223,24 @@ function U:FormationFlyout()
   b:SetScript("OnLeave",function() GameTooltip:Hide() end)
   f.buttons[i]=b
  end
+ -- Range row: Close / Far.
+ f.ranges={}
+ for i,key in ipairs({"close","far"}) do
+  local range=key
+  local b=CreateFrame("Button",nil,f);b:SetWidth(70);b:SetHeight(18)
+  b:SetPoint("BOTTOMLEFT",f,"BOTTOMLEFT",8+(i-1)*76,6)
+  b:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=8,insets={left=2,right=2,top=2,bottom=2}})
+  b.text=b:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall");b.text:SetPoint("CENTER",b,"CENTER",0,0);b.text:SetText(RANGES[range])
+  b.range=range
+  b:SetScript("OnClick",function() B:SetFormationRange(range);U:UpdateFormationTab() end)
+  b:SetScript("OnEnter",function()
+   GameTooltip:SetOwner(b,"ANCHOR_TOP");GameTooltip:SetText(RANGES[range].." range")
+   GameTooltip:AddLine(range=="far" and "Keeps 8-12 yards away, so a hunter can shoot." or "Stays close, within a few yards.",.7,.85,.85,true);GameTooltip:Show()
+  end)
+  b:SetScript("OnLeave",function() GameTooltip:Hide() end)
+  f.ranges[i]=b
+ end
+ f.rangeLabel=f:CreateFontString(nil,"OVERLAY","GameFontNormalSmall");f.rangeLabel:SetPoint("LEFT",f.ranges[2],"RIGHT",8,0);f.rangeLabel:SetText("Distance")
  f:Hide();table.insert(UISpecialFrames,"zBoxFormations")
  self.formationFlyout=f
  return f
@@ -199,7 +263,7 @@ function U:Create()
  tab:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square","ADD")
  tab:SetScript("OnClick",function() U:ToggleFormations() end)
  tab:SetScript("OnEnter",function()
-  GameTooltip:SetOwner(tab,"ANCHOR_RIGHT");GameTooltip:SetText("Formation: "..valid[B:Formation()][2])
+  GameTooltip:SetOwner(tab,"ANCHOR_RIGHT");GameTooltip:SetText("Formation: "..valid[B:Formation()][2]..(B:FormationRange()=="far" and " (far)" or ""))
   GameTooltip:AddLine("Click to choose where your followers stand while following.",.7,.85,.85,true);GameTooltip:Show()
  end)
  tab:SetScript("OnLeave",function() GameTooltip:Hide() end)

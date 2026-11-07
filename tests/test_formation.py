@@ -24,8 +24,8 @@ local guid=zBox.GUID;zBox.GUID=function(self,u) local g=guid(self,u);if g=="" th
 ''')
 alt = p.alt.globals()
 
-def follow(name):
-    p.main.execute(f'zBox.db.formation="{name}";assert(zBox:Command("FOLLOW"))')
+def follow(name, rng="close"):
+    p.main.execute(f'zBox.db.formation="{name}";zBox.db.formationRange="{rng}";assert(zBox:Command("FOLLOW"))')
     p.advance(.8)
 
 def spot():
@@ -72,6 +72,20 @@ p.main.execute('zBox:Command("STOP")'); p.advance(.5)
 assert not alt.zBox.formationState
 print('PASS: Center uses normal follow; out of range falls back to normal follow and back again; Stop ends formation')
 
+# Far range: 8-12 yards away so a hunter can shoot; Center far stays straight behind.
+p.alt.execute('mx,my,mfacing,far=0,0,0,nil')
+follow('left', 'far'); x, y = spot(); d = math.hypot(x, y)
+assert 9.9 < d < 10.1 and x < 0 and y > 0, ('far left', x, y)
+follow('center', 'far'); x, y = spot(); assert abs(x + 10) < .1 and abs(y) < .1, ('far center', x, y)
+assert alt.zBox.formationState and alt.zBox.formationState.far
+follow('random', 'far')
+for i in range(6):
+    p.alt.execute('mx=mx+3'); p.advance(.3); p.advance(1)
+    x, y = spot(); d = math.hypot(x - alt.mx, y - alt.my)
+    assert 7.9 <= d <= 12.1 and x < alt.mx, ('far random', d)
+follow('center', 'close'); assert not alt.zBox.formationState
+print('PASS: Far keeps 10 yards for fixed spots and 8-12 yards for Random; Center far stays behind at range')
+
 # UI: the tab pops out five formation buttons with custom icons; choosing one saves it.
 p.main.execute('''
 local u=zBox.UI;assert(u.formationTab,"tab exists")
@@ -79,5 +93,7 @@ u.formationTab.scripts.OnClick();local f=u.formationFlyout;assert(f:IsShown() an
 assert(string.find(f.buttons[5].icon.texture or f.buttons[5].icon:GetTexture() or "","formation%-random"))
 f.buttons[3].scripts.OnClick();assert(zBox.db.formation=="right" and zBox:Formation()=="right")
 assert(f.buttons[3].ring:IsShown() and not f.buttons[1].ring:IsShown())
+assert(table.getn(f.ranges)==2);f.ranges[2].scripts.OnClick();assert(zBox:FormationRange()=="far")
+f.ranges[1].scripts.OnClick();assert(zBox:FormationRange()=="close")
 ''')
-print('PASS: the Formation tab pops out five icon buttons; choosing one saves it and marks it')
+print('PASS: the Formation tab pops out five icon buttons and a Close/Far distance choice; both save')
