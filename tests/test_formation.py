@@ -58,7 +58,13 @@ for i in range(8):
     assert 1.4 <= back <= 5.1 and abs(side) <= 4.05, (back, side)
     seen.add((round(back, 1), round(side, 1)))
 assert len(seen) >= 4, seen
-print('PASS: Random picks a new spot 1.5-5 yards behind and up to 4 yards to either side each move')
+# Pick once and stay: standing still (even turning in place) never re-picks or re-sends.
+x0, y0 = spot(); p.alt.execute('moves={}')
+p.alt.execute('mfacing=1.0'); p.advance(5)
+x1, y1 = spot()
+assert (x0, y0) == (x1, y1) and len(alt.moves) == 0, ('random stays put', len(alt.moves))
+p.alt.execute('mfacing=0')
+print('PASS: Random picks one spot 1.5-5 yards behind and up to 4 to either side each time the main stops, then stays put')
 
 # Center keeps the game's follow; too far falls back to it too.
 p.alt.execute('followCalls=0')

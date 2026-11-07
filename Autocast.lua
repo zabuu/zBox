@@ -311,6 +311,8 @@ end
 -- Put ! in front to require it missing (!tdebuff:Sunder). Name|Other means either.
 -- Aura names are case-insensitive partial matches; write spaces as _.
 -- behind / !behind: the owner is (not) behind the enemy (needs zBoxBridge geometry).
+-- aggro / maggro / paggro: the enemy is attacking the owner / main / owner's pet
+-- (1.12 has no threat API, so this reads who the enemy has targeted).
 -- tdebuff:Sunder>=5 compares the stack count. Rules are separated by spaces or commas.
 local NUMBERS={cp=true,combo=true,hp=true,mana=true,power=true,rage=true,energy=true,mhp=true,thp=true,php=true}
 local AURAS={buff={"self",false},debuff={"self",true},tbuff={"enemy",false},tdebuff={"enemy",true},
@@ -329,9 +331,11 @@ function B:ParseAutocastCondition(text)
  local rules={}
  for token in string.gfind(text,"[^%s,]+") do
   local _,_,key,op,num=string.find(token,"^(%a+)([<>=~!]+)(%-?%d+)$")
-  local _,_,flagNeg,flag=string.find(token,"^(!?)(behind)$")
-  if flag then
+  local _,_,flagNeg,flag=string.find(token,"^(!?)(%a+)$")
+  if flag=="behind" then
    table.insert(rules,{kind="behind",negate=flagNeg=="!"})
+  elseif flag=="aggro" or flag=="maggro" or flag=="paggro" then
+   table.insert(rules,{kind="aggro",who=({aggro="self",maggro="main",paggro="pet"})[flag],negate=flagNeg=="!"})
   elseif key then
    if not NUMBERS[key] then return nil,"Unknown value '"..key.."'" end
    if not OPS[op] then return nil,"Unknown comparison '"..op.."'" end
@@ -415,9 +419,27 @@ function B:AutocastBehind(mode)
  return (dx*math.cos(g.facing)+dy*math.sin(g.facing))/g.distance < -.1
 end
 
+-- Whether the enemy is attacking who ("self", "main", "pet"); nil when there is
+-- no enemy to look at. An enemy with no target is attacking nobody.
+function B:AutocastAggro(who,mode)
+ local enemy=mode=="KEEP" and self:GUID("target") or self.mainTargetGUID
+ if not enemy or enemy=="" then return end
+ local victim
+ if self:GUID("target")==enemy then victim="targettarget"
+ else local main=self:PeerUnit();if main and not string.find(main,"^0x") then victim=main.."targettarget" end end
+ if not victim or self:GUID((string.gsub(victim,"target$","")))~=enemy then return end
+ local v=self:GUID(victim);if v=="" then return false end
+ local unit=who=="main" and self:PeerUnit() or (who=="pet" and "pet" or "player")
+ local u=unit and self:GUID(unit) or ""
+ return u~="" and string.lower(u)==string.lower(v)
+end
+
 function B:AutocastAllowed(rules,mode)
  for _,r in ipairs(rules) do
-  if r.kind=="behind" then
+  if r.kind=="aggro" then
+   local has=self:AutocastAggro(r.who,mode)
+   if has==nil or has==r.negate then return false end
+  elseif r.kind=="behind" then
    local behind=self:AutocastBehind(mode)
    if behind==nil or behind==r.negate then return false end
   elseif r.kind=="num" then
@@ -460,7 +482,8 @@ local HELP="Every rule must be true. Separate rules with spaces.\n"..
  "|cff88ddddthp<20|r enemy health %   |cff88ddddmana>30|r mana %   |cff88ddddrage>=40|r  |cff88ddddenergy>=60|r\n"..
  "|cff88ddddtbuff:Frenzy||Enrage|r enemy has a buff   |cff88ddddtdebuff:Sunder>=5|r enemy debuff (stacks)\n"..
  "|cff88ddddbuff:|r / |cff88dddddebuff:|r on owner   |cff88ddddmbuff:|r on main   |cff88ddddpbuff:|r on pet\n"..
- "|cff88ddddbehind|r owner is behind the enemy.  "..
+ "|cff88ddddbehind|r owner is behind the enemy, |cff88dddd!behind|r not behind.\n"..
+ "|cff88ddddaggro|r enemy is attacking the owner (|cff88ddddmaggro|r your main, |cff88ddddpaggro|r owner's pet).\n"..
  "Put |cff88dddd!|r in front for \"missing\" (|cff88dddd!tdebuff:Serpent_Sting|r). Use _ for spaces."
 
 function B:OpenAutocastEditor(slot)
@@ -473,7 +496,7 @@ function B:OpenAutocastEditor(slot)
   f:SetFrameStrata("FULLSCREEN_DIALOG");f:SetToplevel(true);f:EnableMouse(true);f:SetMovable(true)
   f:RegisterForDrag("LeftButton");f:SetScript("OnDragStart",function() this:StartMoving() end)
   f:SetScript("OnDragStop",function() this:StopMovingOrSizing() end)
-  f:SetWidth(430);f:SetHeight(192);f:SetPoint("CENTER",UIParent,"CENTER",0,120)
+  f:SetWidth(430);f:SetHeight(206);f:SetPoint("CENTER",UIParent,"CENTER",0,120)
   f:SetBackdrop({bgFile="Interface\\Tooltips\\UI-Tooltip-Background",edgeFile="Interface\\Tooltips\\UI-Tooltip-Border",tile=true,tileSize=16,edgeSize=12,insets={left=3,right=3,top=3,bottom=3}})
   f:SetBackdropColor(.025,.035,.045,.97);f:SetBackdropBorderColor(.25,.45,.49,1)
   f.title=f:CreateFontString(nil,"OVERLAY","GameFontNormal");f.title:SetPoint("TOPLEFT",f,"TOPLEFT",12,-10)

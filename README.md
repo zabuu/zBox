@@ -163,6 +163,7 @@ as you type, refuses to save typos, and saving a condition turns autocast on.
 | `buff:`, `debuff:` | aura on the owner |
 | `mbuff:`, `mdebuff:`, `pbuff:`, `pdebuff:` | aura on the main / owner's pet |
 | `behind`, `!behind` | owner is (not) behind the enemy, from the bridge's enemy position and facing |
+| `aggro`, `maggro`, `paggro` | the enemy is attacking the owner / your main / the owner's pet. 1.12 has no threat numbers, so this reads who the enemy has targeted. `!aggro` means it's attacking someone else. Grouped characters only |
 | `!tdebuff:Serpent_Sting` | `!` means the aura must be missing |
 
 Comparisons are `< <= > >= = ~=`. Aura names are case-insensitive partial
@@ -171,6 +172,7 @@ target, or the owner's own target in Owner's target mode. Examples:
 Eviscerate `cp>=4`; Tranquilizing Shot `tbuff:Frenzy|Enrage`; Execute `thp<20`;
 Hamstring `!tdebuff:Hamstring thp<30`; Backstab `behind`. If the bridge cannot
 report the enemy's position, `behind` and `!behind` both count as false.
+Taunt `!aggro` (or `!maggro` to protect your main); a threat dump `aggro`.
 
 If account 2's Spells/Actions page does not arrive, the driver now asks for it
 again automatically (after 2 s over the local DLL link, 5 s over whispers, backing
@@ -420,8 +422,8 @@ and Keys. Once unlinked, **x** can close the panel completely.
 - **Formation tab** (the small icon tab on the panel's right edge) pops out
   five formations for Follow: **Left** (back-left), **Center** (right behind,
   the game's normal follow), **Right** (back-right), **Front** (in front, like a
-  shield) and **Random** (a new spot each time you start moving, anywhere
-  1.5-5 yards behind and up to 4 yards to either side). Followers walk to their
+  shield) and **Random** (trails behind while you move; when you stop it
+  picks one spot 1.5-5 yards behind and up to 4 yards to either side, and stays). Followers walk to their
   spot with native click-to-move (zBoxBridge 0.1.6+), turn with you, and face
   your way once settled. Beyond 40 yards they use normal follow to catch up.
   Below the icons, **Close** (default) or **Far** sets the distance: Far keeps
@@ -436,6 +438,9 @@ and Keys. Once unlinked, **x** can close the panel completely.
   with your main first; a click on the ground right beside it then counts.
   While the picker is up, a ring drawn on the ground marks exactly where a
   click lands: green for open ground, gold for an NPC the follower will talk to.
+  Clicking a corpse (the ring says "Loot") sends the follower to loot it: it
+  walks over, opens the loot, takes every item and closes the window. Items
+  that ask for a bind-on-pickup confirmation or don't fit in its bags stay.
   STOP or any new order cancels the walk. With zBoxBridge **0.1.13** the same
   click also works on game objects: click a chest, barrel, herb, ore node, door
   or mailbox (or the ground within 3 yards of it) and the follower walks over

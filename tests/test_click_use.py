@@ -173,3 +173,30 @@ assert(zBox:PickUseObject(30,30,0)==nil,"click elsewhere is a plain move")
 assert(zBox:PickUseObject()==nil,"no click point, no search")
 ''')
 print('PASS: bridge 0.1.13 picks the game object nearest a ground click (within 3 yards) when the cursor lookup finds nothing')
+
+# Dead NPC under the cursor: the follower walks over, right-clicks it and takes everything.
+for lua in (p.main, p.alt):
+    lua.execute('''
+UnitIsDead=function(u) return u==npcGUID or (u=="target" and selectedGUID==npcGUID) or (u=="mouseover" and hovered==npcGUID) end
+UnitIsDeadOrGhost=UnitIsDead
+lootItems=3;looted={};closed=0
+GetNumLootItems=function() return lootItems end
+LootSlot=function(i) table.insert(looted,i) end
+CloseLoot=function() closed=closed+1 end
+''')
+p.alt.execute('px,py,pz,facing=0,0,0,0;selectedGUID=nil;talked={}')
+p.main.execute('hovered=npcGUID;selectedGUID=nil;assert(zBox:PickUseTarget()==nil,"corpses are not talked to");assert(zBox:PickLootTarget()==npcGUID)')
+p.main.execute('local ok,why=zBox:CaptureMoveOrUse();assert(ok,why)')
+p.advance(.5)
+alt = p.alt.globals()
+assert alt.zBox.useTarget and alt.zBox.useTarget.loot, 'walking to the corpse'
+p.advance(5, physics=True)
+assert len(alt.talked) == 1 and alt.talked[1] == NPC, 'right-clicked the corpse once in range'
+p.alt.execute('zBox:TakeLoot()')  # LOOT_OPENED
+assert sorted(alt.looted.values()) == [1, 2, 3], list(alt.looted.values())
+p.advance(1.5)
+assert alt.closed == 1, 'loot window closed afterwards'
+p.alt.execute('looted={};zBox:TakeLoot()')
+assert len(alt.looted) == 0, 'a loot window the follower did not ask for is left alone'
+p.main.execute('hovered=nil;selectedGUID=npcGUID;assert(zBox:PickLootTarget(21,1,0)==npcGUID);assert(zBox:PickLootTarget(40,0,0)==nil)')
+print('PASS: clicking a corpse walks the follower over, loots every slot and closes the window; other loot windows are left alone')

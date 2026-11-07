@@ -50,14 +50,17 @@ function U:UpdateReticle(force)
  r.key,r.at=key,GetTime()
  local x,y,z,color,text
  local npc=B.PickUseTarget and B:PickUseTarget()
+ local loot=not npc and B.PickLootTarget and B:PickLootTarget()
+ if loot then npc=loot end
  if npc then x,y,z=B:Position("mouseover") end
- if x then color,text={1,.82,.2},"Talk" else
+ if x then color,text={1,.82,.2},loot and "Loot" or "Talk" else
   x,y,z=B:PickTerrain()
   local object,ox,oy,oz=B.PickUseObject and B:PickUseObject(x,y,z)
   if object then x,y,z,text=ox,oy,oz,"Use" end
   if not x then return hide() end
   npc=object or (B.PickUseTarget and B:PickUseTarget(x,y,z))
   if npc and not object then text="Talk" end
+  if not npc and B.PickLootTarget then npc=B:PickLootTarget(x,y,z);if npc then text="Loot" end end
   if not npc and rawObject() then text="Object found, but not where you're pointing" end
   color=npc and {1,.82,.2} or {.3,1,.55}
  end

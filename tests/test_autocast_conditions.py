@@ -108,10 +108,39 @@ t.alt.execute('geo.px=2')
 assert run(2.0) == [], 'in front of the enemy'
 t.alt.execute('zBox.PetGeometry=function() return nil end')
 assert run(2.0) == [], 'unknown position never counts as behind'
+t.main.execute('assert(zBox:SetAutocastCondition(3,"!behind"))')
+t.advance(1)
+t.alt.execute('zBox.PetGeometry=function(self,guid) return guid=="0x0000000000000099" and geo or nil end')
+r = run(2.0); assert 3 in r, ('!behind fires in front of the enemy', r)
+t.alt.execute('geo.px=-2')
+assert run(2.0) == [], '!behind waits while behind'
+t.alt.execute('zBox.PetGeometry=function() return nil end')
+assert run(2.0) == [], 'unknown position is not "not behind" either'
+t.main.execute('assert(zBox:SetAutocastCondition(3,""))')
+t.advance(1)
+t.main.execute('assert(zBox:SetAutocastCondition(3,"!aggro maggro"))')
+t.advance(1)
+t.alt.execute('''
+victim="";local guid=zBox.GUID;local peer=zBox.PeerUnit
+zBox.PeerUnit=function() return "party1" end
+zBox.GUID=function(self,u)
+ if u=="party1" then return "0x00000000000000A1" end
+ if u=="party1target" then return "0x0000000000000099" end
+ if u=="party1targettarget" or u=="targettarget" then return victim end
+ return guid(self,u)
+end
+''')
+assert run(2.0) == [], 'enemy attacking nobody: maggro fails'
+t.alt.execute('victim="0x00000000000000A1"')
+r = run(2.0); assert 3 in r, ('enemy on the main, not on the owner', r)
+t.alt.execute('victim=zBox:GUID("player")')
+assert run(2.0) == [], 'owner has aggro'
+t.alt.execute('zBox.PeerUnit=function() return nil end')
+assert run(2.0) == [], 'unknown enemy target fails safe'
 t.main.execute('assert(zBox:SetAutocastCondition(3,""))')
 t.advance(1)
 t.main.execute('combat=false')
-print('PASS: behind / !behind use the enemy position and facing; unknown geometry fails safe')
+print('PASS: aggro/maggro read who the enemy is attacking; behind / !behind use the enemy position and facing; unknown geometry fails safe')
 print('PASS: stack counts, ! for missing, and enemy health checks work; clearing a condition restores normal autocast')
 
 # The real tooltip reader runs without errors and Escape no longer minimizes the panel.

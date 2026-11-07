@@ -9,7 +9,7 @@ local FORMATIONS={
  {"center","Center","Follows right behind you, like normal follow."},
  {"right","Right","Follows behind and to your right."},
  {"front","Front","Walks in front of you, like a shield."},
- {"random","Random","Picks a new spot in a wide zone behind you (1.5-5 yards back, up to 4 yards to either side) each time you start moving."},
+ {"random","Random","Trails behind you while you move; each time you stop it picks one spot in a wide zone behind you (1.5-5 yards back, up to 4 yards to either side) and stays there."},
 }
 B.Formations=FORMATIONS
 local valid={};for _,f in ipairs(FORMATIONS) do valid[f[1]]=f end
@@ -147,16 +147,26 @@ function B:FormationTick(now)
  end
  local moving=st.mainX and (g.x-st.mainX)^2+(g.y-st.mainY)^2>.15^2
  st.mainX,st.mainY=g.x,g.y
- if moving and not st.mainMoving and st.name=="random" then st.offset=randomOffset(st.far) end
  if moving then st.stillSince=nil elseif st.mainMoving or not st.stillSince then st.stillSince=now end
  st.mainMoving=moving
- local f,r=st.offset[1],st.offset[2]
  local cf,sf=math.cos(g.facing),math.sin(g.facing)
  -- Facing 0 points along +x and turns toward +y; the main's right is (sin, -cos).
- local tx,ty=g.x+f*cf+r*sf,g.y+f*sf-r*cf
+ local function spot(o) return g.x+o[1]*cf+o[2]*sf,g.y+o[1]*sf-o[2]*cf end
+ local tx,ty
+ if st.name=="random" then
+  -- Random: trail straight behind while the main moves; once it has stopped,
+  -- pick one spot in the zone and walk there. No re-picking until it moves again.
+  if moving then st.landing=nil
+  elseif not st.landing and st.stillSince and now-st.stillSince>=.4 then
+   local x,y=spot(randomOffset(st.far));st.landing={x,y}
+  end
+  if st.landing then tx,ty=st.landing[1],st.landing[2]
+  else tx,ty=spot(st.far and {-B.FORMATION_FAR.fixed,0} or {-(B.FORMATION_RANDOM.back1+B.FORMATION_RANDOM.back2)/2,0}) end
+ else tx,ty=spot(st.offset) end
  local d2=(tx-g.px)^2+(ty-g.py)^2
  if d2>(moving and .6 or 1)^2 then
-  if not st.goal or (st.goal[1]-tx)^2+(st.goal[2]-ty)^2>.6^2 or now-st.sentAt>1.5 then
+  local retry=st.landing and 3 or 1.5
+  if not st.goal or (st.goal[1]-tx)^2+(st.goal[2]-ty)^2>.6^2 or now-st.sentAt>retry then
    if native("MoveTo",tx,ty,g.z) then st.goal,st.sentAt,st.faced={tx,ty},now,nil end
   end
  else
