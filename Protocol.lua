@@ -95,7 +95,18 @@ end
 function B:Send(kind, fields, high)
   local queue = high and self.queueHigh or self.queueLow
   if not queue then return nil end
-  if table.getn(queue) > (high and 160 or 256) then return nil end
+  local field = high and "highIndex" or "lowIndex"
+  local index = self[field] or 1
+  -- A busy queue that never fully drains used to keep its already-sent
+  -- packets, so it reached the cap and silently dropped new snapshots.
+  if index > 32 then
+    local rest = {}
+    for i = index, table.getn(queue) do rest[i - index + 1] = queue[i] end
+    queue = rest
+    if high then self.queueHigh = rest else self.queueLow = rest end
+    self[field], index = 1, 1
+  end
+  if table.getn(queue) - index + 1 > (high and 160 or 256) then return nil end
   local packets, id = self:Packets(kind, fields)
   if not packets then return nil end
   for i = 1, table.getn(packets) do table.insert(queue, packets[i]) end
@@ -308,7 +319,7 @@ function B:Tick(now, elapsed)
     self.lastHello = now
   end
   if self.connected and now - self.lastHeartbeat >= 0.8 then
-    self:Send("PING",self.db.role=="control" and {self:GUID("target")} or {},true)
+    self:Send("PING",self.db.role=="control" and {self:GUID("target"),UnitAffectingCombat("player") and "1" or "0"} or {},true)
     self.lastHeartbeat = now
   end
   if self.connected and self.db.role == "agent" then
@@ -330,8 +341,8 @@ function B:Tick(now, elapsed)
     end
     if self.activeView and self.activeView.section == "quests" and now - (self.lastViewAt or -10) >= 2.5 then self.viewDirty = true end
     if self.activeView and self.viewDirty and now - (self.lastViewAt or -10) >= 0.8 then
-      self:SendView()
-      self.viewDirty, self.lastViewAt = false, now
+      -- Keep the view dirty when the queue refused it, so it is retried.
+      self.viewDirty, self.lastViewAt = not self:SendView(), now
     end
     if self.barDirty and self.actionPage and now - (self.lastBarAt or -10) >= 0.8 then
       self:SendView({ section = "actions", page = self.actionPage })
@@ -354,6 +365,7 @@ function B:Tick(now, elapsed)
       self.notice = pending.command .. ": no acknowledgement; verify on account 2"
     end
   end
+  if self.connected and self.db.role == "control" and self.ViewRetryTick then self:ViewRetryTick(now) end
   self:Pump(now, elapsed)
   if self.UI then self.UI:Tick(now) end
 end

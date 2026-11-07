@@ -70,10 +70,45 @@ function B:ActionStamp(slot)
  end
  return stamp(self,slot)
 end
+-- The unit under the cursor: the 3D world mouseover, else a unit frame
+-- (Blizzard/notgrid frame.unit, pfUI frame.label..frame.id) or its parent.
+function B:MouseoverGUID()
+ local guid=self:GUID("mouseover")
+ if guid~="" then return guid end
+ local frame=GetMouseFocus and GetMouseFocus()
+ for depth=1,3 do
+  if type(frame)~="table" then break end
+  local unit=frame.unit
+  if type(unit)~="string" and type(frame.label)=="string" then
+   local id=frame.id;if type(id)=="number" then id=tostring(id) end
+   unit=frame.label..(type(id)=="string" and id or "")
+  end
+  if type(unit)=="string" and unit~="" and string.len(unit)<40 then guid=self:GUID(unit);if guid~="" then return guid end end
+  frame=frame.GetParent and frame:GetParent()
+ end
+ return ""
+end
+-- Mouseover mode sends both the hovered unit and the main's target. The skill
+-- owner decides which applies, because only it knows whether the skill is
+-- friendly: friendly skills use a hovered friend, else the main; other skills
+-- use a hovered enemy, else the main's target.
 local target=B.TargetDescriptor
 function B:TargetDescriptor(selfCast)
- if not selfCast and self.targetMode=="MOUSEOVER" then return self:GUID("mouseover") end
+ if not selfCast and self.targetMode=="MOUSEOVER" then return "MOUSE:"..self:MouseoverGUID()..":"..self:GUID("target") end
  return target(self,selfCast)
+end
+local function unitTest(fn,unit)
+ if type(fn)~="function" then return false end
+ local ok,exists=pcall(UnitExists,unit);if not ok or not exists then return false end
+ local accepted,result=pcall(fn,"player",unit)
+ return accepted and (result==true or result==1)
+end
+function B:ResolveMouseTarget(descriptor,friendly)
+ local _,_,hovered,fallback=string.find(descriptor or "","^MOUSE:([^:]*):([^:]*)$")
+ if not hovered or (hovered~="" and not self:IsGUID(hovered)) or (fallback~="" and not self:IsGUID(fallback)) then return nil end
+ if friendly then return (hovered~="" and unitTest(UnitCanAssist,hovered)) and hovered or "MAIN" end
+ if hovered~="" and unitTest(UnitCanAttack,hovered) then return hovered end
+ return fallback
 end
 function B:ClickDescriptor(selfCast)
  if selfCast then return "SELF" end

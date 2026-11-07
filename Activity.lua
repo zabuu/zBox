@@ -18,3 +18,24 @@ function B:ActivityTick(now)
     if ok and (away==true or away==1) then pcall(SendChatMessage,"","AFK") end
   end
 end
+
+-- Every command from the driver (casts, movement, follow, NPC clicks, ...) also
+-- counts as activity, so a follower that is being played never idles to AFK.
+-- Only the idle timestamp is refreshed; no input is synthesized.
+function B:TouchActivity(now)
+  if self.db.keepAwake == false or (self.lastActivityTouch and now-self.lastActivityTouch < 2) then return end
+  if not self:GetBridgeInfo().activity then return end
+  self.lastActivityTouch = now
+  local ok, result = pcall(zBoxNative,"RefreshActivity")
+  if ok and result==1 then self.activityStatus = "linked background activity" end
+  if type(UnitIsAFK)=="function" and type(SendChatMessage)=="function" then
+    local accepted, away = pcall(UnitIsAFK,"player")
+    if accepted and (away==true or away==1) then pcall(SendChatMessage,"","AFK") end
+  end
+end
+
+local message = B.Message
+function B:Message(kind, fields, id, now)
+  if kind == "CMD" and self.db.role == "agent" and self.connected then self:TouchActivity(now) end
+  return message(self, kind, fields, id, now)
+end

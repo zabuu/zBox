@@ -1,6 +1,28 @@
 # Native bridge
 
-Version 0.1.11, capability contract 10, for the guarded WoW 1.12.1.5875 x86 image.
+Version 0.1.13, capability contract 12, for the guarded WoW 1.12.1.5875 x86 image.
+
+Contract 11 adds game objects (chests, herbs, ore, barrels, doors, mailboxes).
+`capabilities` now returns a fourth value, 1 when the jump observer loaded and
+0 when it did not, instead of dropping the whole contract to 3. `MouseoverObject`
+returns the GUID and position of the game object under the world cursor (the
+mouseover GUID global at `0xB4E2C8`, resolved through the GUID lookup and
+accepted only when its type mask has GAMEOBJECT `0x20`; position comes from
+update fields `GAMEOBJECT_POS_X/Y/Z`, descriptor + `0x3C`). `InteractObject(guid)`
+resolves a game object within six yards and calls the object right-click handler
+at `0x5F8660` (thiscall, one stack argument 0, `ret 4`), the counterpart of the
+unit handler `InteractNPC` uses. The addon also requires the object position to
+sit within eight yards of the clicked ground point before trusting a lookup.
+`probe_objects.py <WoW.exe>` checks these addresses read-only before a build.
+
+Contract 12 adds `NearestObject(x, y, z, radius)` (integer radius up to 10
+yards): it walks the client object list (manager `0xB41414`, first object
++`0xAC`, next +`0x3C`, type +`0x14` = 5, GUID +`0x30`) and returns the nearest
+game object to the point. Every candidate must resolve back to the same object
+through the GUID lookup, so a wrong offset finds nothing rather than a wrong
+object. The addon uses it when the cursor lookup finds no object, for a ground
+click within 3 yards of a chest, herb or other object.
+
 Contracts 2 and 3 remain supported for their older action/movement features.
 The controller requires contract 4 for Mirror mode's passive jump observation.
 Contract 5 includes those features and adds point movement and unit geometry.

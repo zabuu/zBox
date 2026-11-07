@@ -93,7 +93,9 @@ end
 function B:ResetMirrorJump()
   local info = self:GetBridgeInfo()
   if not info.jumpEvents then
-    if info.version == "zBoxBridge 0.1.5" or info.version == "zBoxBridge 0.1.6" or info.version == "zBoxBridge 0.1.7" or info.version == "zBoxBridge 0.1.8" or info.version == "zBoxBridge 0.1.9" then return false, "Native jump observer did not load; /zbox diag reports its status" end
+    if info.version == "zBoxBridge 0.1.5" or info.version == "zBoxBridge 0.1.6" or info.version == "zBoxBridge 0.1.7" or info.version == "zBoxBridge 0.1.8" or info.version == "zBoxBridge 0.1.9" or info.version == "zBoxBridge 0.1.10" or info.version == "zBoxBridge 0.1.11" or info.jumpObserverFailed then
+      return false, "Mirror jumping is off: the bridge's jump hook did not load on this client (another DLL hooked it first). Fully restart this client; /zbox diag shows the observer status."
+    end
     return false, "Mirror jumping needs zBoxBridge 0.1.5. Fully restart both clients after updating the DLL."
   end
   local ok, result, mask, heading, jumps = pcall(zBoxNative, "inputs")

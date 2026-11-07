@@ -28,11 +28,14 @@ function B:UseBarSlot(slot,selfCast)
  local owner,own=self:EntryOwner(entry)
  if not owner then self:RemoteFeedback(entry.peer.." is not connected");return false end
  -- Resolve main mouseover/target before switching to the skill owner's state.
- local descriptor,mouse=self:TargetDescriptor(selfCast),self:GUID("mouseover")
+ local descriptor,mouse=self:TargetDescriptor(selfCast),self:MouseoverGUID()
  if own then
   local index=entry.command=="SKILL" and self:FindSkill(entry.name,entry.rank)
   if not index then self:RemoteFeedback("That spell/rank is no longer in your spellbook");return false end
-  if not selfCast and self:IsFriendlyCast("SPELL",index) then descriptor="SELF" end
+  if string.sub(descriptor,1,6)=="MOUSE:" then
+   descriptor=self:ResolveMouseTarget(descriptor,self:IsFriendlyCast("SPELL",index)) or ""
+   if descriptor=="MAIN" then descriptor="SELF" end
+  elseif not selfCast and self:IsFriendlyCast("SPELL",index) then descriptor="SELF" end
   local ok,why=self:ChooseTarget(descriptor=="MAIN" and "SELF" or descriptor)
   if ok then ok,why=self:Invoke("CastSpell",index,BOOKTYPE_SPELL or "spell") end
   if not ok then self:RemoteFeedback(why) end
@@ -174,7 +177,13 @@ function B:BarTooltip(slot)
  local cell=self.UI.dockCells[slot];local p=self:BarProfile();local e=p.pages[p.page][slot];local s=state()
  GameTooltip:SetOwner(cell,"ANCHOR_TOP");GameTooltip:SetText(e and (e.label.." - "..e.peer) or "Empty zBox slot")
  if e and e.rank and e.rank~="" then GameTooltip:AddLine(e.rank,.75,.8,.85) end
- if e then GameTooltip:AddLine("Friendly skills: left-click main, right-click skill owner.",.65,.85,.85,true) end
+ if e and self.targetMode=="MOUSEOVER" then GameTooltip:AddLine("Mouseover mode: casts on the unit under your cursor. Otherwise friendly skills go to main, others to main's target.",.65,.85,.85,true)
+ elseif e then GameTooltip:AddLine("Friendly skills: left-click main, Alt-click skill owner.",.65,.85,.85,true) end
+ if e and self:Name(e.peer)~=self:Name(UnitName("player")) then
+  GameTooltip:AddLine(e.autocast and "Autocast ON - right-click to turn off. Used on cooldown in combat, leftmost first." or "Right-click: autocast on cooldown in combat.",e.autocast and .3 or .65,e.autocast and 1 or .85,e.autocast and .6 or .85,true)
+  if e.autocastIf then GameTooltip:AddLine("Only when: "..e.autocastIf,.95,.85,.4,true) end
+  GameTooltip:AddLine("Ctrl-right-click: set an autocast condition.",.65,.85,.85,true)
+ end
  if e and e.mouseover then GameTooltip:AddLine("Mouseover macro: uses your mouseover, then the chosen cast target.",.4,.9,.85,true) end
  if p.bindings[slot] then
   GameTooltip:AddLine("zBox key: "..p.bindings[slot],1,.85,.3)
@@ -246,7 +255,9 @@ function U:Create()
    if state().ignoreClickUntil and GetTime()<state().ignoreClickUntil then return end
    if state().cursor or (GetCursorInfo and GetCursorInfo()) then B:DropBarSlot(slot)
    elseif arg1=="RightButton" and IsShiftKeyDown() then local p=B:BarProfile();p.pages[p.page][slot]=nil;B:InvalidateBarWatches();B:RenderBar()
-   else B:UseBarSlot(slot,arg1=="RightButton" or (IsAltKeyDown and IsAltKeyDown())) end
+   elseif arg1=="RightButton" and IsControlKeyDown and IsControlKeyDown() then B:OpenAutocastEditor(slot)
+   elseif arg1=="RightButton" then B:ToggleAutocast(slot)
+   else B:UseBarSlot(slot,IsAltKeyDown and IsAltKeyDown()) end
   end)
  end
  local capture=CreateFrame("Frame",nil,UIParent);s.capture=capture

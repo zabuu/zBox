@@ -63,7 +63,10 @@ function B:RequestCast(command, index, stamp, target,mouseover)
   if left then target=string.sub(target,6) end
   -- SELF is the explicit right/Alt-click override; other helpful unit casts
   -- default to the driver, independent of the hostile target mode.
-  if (left or target~="SELF") and self:IsFriendlyCast(command,index) then target="MAIN" end
+  if type(target)=="string" and string.sub(target,1,6)=="MOUSE:" then
+    target=self:ResolveMouseTarget(target,self:IsFriendlyCast(command,index))
+    if not target then return false,"Invalid mouseover target" end
+  elseif (left or target~="SELF") and self:IsFriendlyCast(command,index) then target="MAIN" end
   local mouseoverMacro=false
   if command=="ACTION" then local _,_,_,flag=self:ActionDetails(index);mouseoverMacro=flag=="1" end
   -- The background client's current mouseover is not the driver's mouseover.

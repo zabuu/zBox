@@ -154,7 +154,8 @@ function U:Create()
     U:UpdateVisibility()
   end)
   f:SetScript("OnShow", function() U:UpdateVisibility() end)
-  table.insert(UISpecialFrames, "zBoxPanel")
+  -- Escape no longer minimizes the panel; it only closes zBox popups (More, Keys).
+  table.insert(UISpecialFrames, "zBoxBrowser"); table.insert(UISpecialFrames, "zBoxKeys")
   label(f, "zBox", 11, 12, -8, 36):SetTextColor(0.35, 0.9, 0.8)
   self.connection = label(f, "Not paired", 10, 52, -9, 200)
   self.talkButton=compactButton(f,"Talk",254,-4,50,function() U:Talk() end)
@@ -231,7 +232,7 @@ function U:Create()
   self.followButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
   self.followButton:SetScript("OnEnter", function()
     GameTooltip:SetOwner(this, "ANCHOR_TOP"); GameTooltip:SetText("Movement mode")
-    GameTooltip:AddLine("Right-click: cycle Follow / Mirror / Pet. In Mirror, click to pause or resume.", 0.7, 0.9, 0.85, true)
+    GameTooltip:AddLine("In Mirror, click to pause or resume.", 0.7, 0.9, 0.85, true)
     GameTooltip:AddLine("Mirror copies your movement, jump and character heading, including mouse turning.", 0.7, 0.9, 0.85, true); GameTooltip:Show()
   end)
   self.followButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
@@ -496,10 +497,10 @@ function U:Click(cell, mouse)
     self:Run("NPC", { row[6], row[1], row[5] })
   elseif cell.section == "actions" then
     if row[2] == "" then return end
-    self:Run("ACTION", { row[1], row[4], B:ClickDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
+    self:Run("ACTION", { row[1], row[4], B:ClickDescriptor(mouse == "RightButton"),B:MouseoverGUID() })
   elseif cell.section == "spells" then
     if row[6] == "1" then B:Notify("That spell is passive"); return end
-    self:Run("SPELL", { row[1], row[5], B:ClickDescriptor(mouse == "RightButton"),B:GUID("mouseover") })
+    self:Run("SPELL", { row[1], row[5], B:ClickDescriptor(mouse == "RightButton"),B:MouseoverGUID() })
   elseif cell.section == "bags" then
     if row[8] == "" then return end
     if mouse == "RightButton" then
@@ -836,19 +837,49 @@ end
 function U:CreateMoveOverlay()
   local f = CreateFrame("Frame", "zBoxMovePicker", UIParent)
   self.moveOverlay = f
-  f:SetAllPoints(WorldFrame); f:SetFrameStrata("FULLSCREEN_DIALOG"); f:EnableMouse(true)
+  f:SetAllPoints(WorldFrame); f:SetFrameStrata("FULLSCREEN_DIALOG")
+  -- With IsMouseButtonDown the picker lets the mouse through to the world, so
+  -- hovering still highlights NPCs (and the game cursor still changes). Clicks
+  -- are read by polling the buttons. Without it, fall back to catching clicks.
+  local passThrough = type(IsMouseButtonDown) == "function"
+  f:EnableMouse(not passThrough)
   local hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   hint:SetPoint("TOP", UIParent, "TOP", 0, -100)
-  hint:SetText("zBox: click terrain to move account 2. Right-click or Escape cancels.")
-  f:SetScript("OnMouseDown", function()
-    if arg1 == "LeftButton" then
-      local ok, reason = B:CaptureMove()
-      if not ok then B:Notify(reason); return end
+  hint:SetText("zBox: click terrain to move account 2, or a friendly NPC to walk up and talk to it. Right-click, Escape or Move again cancels.")
+  f:SetScript("OnMouseDown", function() U:MovePickerClick(arg1) end)
+  if passThrough then
+    local function held(button) local ok, down = pcall(IsMouseButtonDown, button); return ok and down and true or false end
+    local function onWorld()
+      local focus = GetMouseFocus and GetMouseFocus()
+      return not focus or focus == WorldFrame or focus == f
     end
-    U:CancelMove()
-  end)
+    f:SetScript("OnShow", function() f.left, f.right, f.press = held("LeftButton"), held("RightButton"), nil end)
+    f:SetScript("OnUpdate", function()
+      local left, right = held("LeftButton"), held("RightButton")
+      for _, b in ipairs({ { "LeftButton", left, "left" }, { "RightButton", right, "right" } }) do
+        local name, down, key = b[1], b[2], b[3]
+        if down and not f[key] and onWorld() then
+          local x, y = GetCursorPosition(); f.press = { button = name, x = x, y = y, at = GetTime() }
+        elseif not down and f[key] and f.press and f.press.button == name then
+          -- A quick click, not a camera drag.
+          local x, y = GetCursorPosition(); local p = f.press; f.press = nil
+          if GetTime() - p.at < 0.4 and (x - p.x) ^ 2 + (y - p.y) ^ 2 < 100 and onWorld() then U:MovePickerClick(name) end
+        end
+        f[key] = down
+      end
+    end)
+  end
   f:Hide()
   table.insert(UISpecialFrames, "zBoxMovePicker")
+end
+
+function U:MovePickerClick(button)
+  if button == "LeftButton" then
+    local ok, reason
+    if B.CaptureMoveOrUse then ok, reason = B:CaptureMoveOrUse() else ok, reason = B:CaptureMove() end
+    if not ok then B:Notify(reason); return end
+  end
+  self:CancelMove()
 end
 
 function U:ArmMove()

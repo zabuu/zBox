@@ -138,11 +138,91 @@ bool interact(uint64_t guid) {
   } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
+// Game objects (chests, herbs, ore, doors, mailboxes). TYPEMASK_GAMEOBJECT=0x20;
+// GAMEOBJECT_POS_X/Y/Z are update fields 0x0F-0x11 of the descriptor at +8.
+// The mouseover GUID global and the object right-click handler are checked by
+// tests/test_client_abi.py; the Lua side also requires the object position to
+// sit next to the clicked ground point before it trusts a lookup.
+bool objectPosition(uintptr_t object, float *position) {
+  const uintptr_t descriptor = *reinterpret_cast<uintptr_t *>(object + 8);
+  if (!descriptor) return false;
+  if ((*reinterpret_cast<uint32_t *>(descriptor + 8) & 0x20) == 0) return false;
+  const float *field = reinterpret_cast<const float *>(descriptor + 0x0F * 4);
+  for (int i=0; i<3; ++i) {
+    position[i] = field[i];
+    if (!std::isfinite(position[i]) || std::fabs(position[i]) > 100000) return false;
+  }
+  return true;
+}
+
 uintptr_t localPlayer() {
   using Lookup = uintptr_t(__stdcall *)(uint64_t);
   if (!*at<uint8_t *>(0x00B4B424)) return 0;
   const uintptr_t manager = *at<uintptr_t *>(0x00B41414);
   return manager ? at<Lookup>(0x00464870)(*reinterpret_cast<uint64_t *>(manager + 0xC0)) : 0;
+}
+
+// Mouseover GUID under the world cursor (units and game objects alike).
+bool mouseoverObject(uint64_t &guid, float *position) {
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  __try {
+    if (!*at<uint8_t *>(0x00B4B424)) return false;
+    guid = *at<uint64_t *>(0x00B4E2C8);
+    if (!guid) return false;
+    const uintptr_t object = at<Lookup>(0x00464870)(guid);
+    return object && objectPosition(object, position);
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+// Nearest game object to a world point, by walking the client object list:
+// manager [0xB41414], first object +0xAC, next +0x3C, type +0x14 (5 = game
+// object), GUID +0x30. Each candidate must resolve back to itself through the
+// GUID lookup, so a wrong offset finds nothing instead of a wrong object.
+bool nearestObject(const float *point, float radius, uint64_t &found, float *where) {
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  __try {
+    if (!*at<uint8_t *>(0x00B4B424)) return false;
+    const uintptr_t manager = *at<uintptr_t *>(0x00B41414);
+    if (!manager) return false;
+    uintptr_t object = *reinterpret_cast<uintptr_t *>(manager + 0xAC);
+    float best = radius * radius;
+    found = 0;
+    for (int guard = 0; guard < 20000 && object && (object & 3) == 0; ++guard) {
+      if (*reinterpret_cast<uint32_t *>(object + 0x14) == 5) {
+        const uint64_t guid = *reinterpret_cast<uint64_t *>(object + 0x30);
+        float position[3]{};
+        if (guid && objectPosition(object, position) && at<Lookup>(0x00464870)(guid) == object) {
+          const float dx = position[0]-point[0], dy = position[1]-point[1], dz = position[2]-point[2];
+          const float d = dx*dx + dy*dy + dz*dz;
+          if (std::isfinite(d) && d < best) {
+            best = d; found = guid;
+            for (int i=0; i<3; ++i) where[i] = position[i];
+          }
+        }
+      }
+      object = *reinterpret_cast<uintptr_t *>(object + 0x3C);
+    }
+    return found != 0;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
+}
+
+bool interactObject(uint64_t guid) {
+  // CGGameObject_C right-click: ECX=object, one stack argument (0), ret 4,
+  // the same handler the world click dispatcher calls for game objects.
+  using Lookup = uintptr_t(__stdcall *)(uint64_t);
+  using RightClick = void(__thiscall *)(uintptr_t, int);
+  __try {
+    const uintptr_t player = localPlayer();
+    if (!player || !guid) return false;
+    const uintptr_t object = at<Lookup>(0x00464870)(guid);
+    float position[3]{};
+    if (!object || !objectPosition(object, position)) return false;
+    const float *own = reinterpret_cast<const float *>(player + 0x9B8);
+    const float dx = position[0]-own[0], dy = position[1]-own[1], dz = position[2]-own[2];
+    if (!std::isfinite(dx) || dx*dx+dy*dy+dz*dz > 36) return false;
+    at<RightClick>(0x005F8660)(object, 0);
+    return true;
+  } __except (EXCEPTION_EXECUTE_HANDLER) { return false; }
 }
 
 bool stopFollow() {
@@ -244,15 +324,18 @@ bool whisper(const char *peer, const char *frame) {
 int __fastcall bridge(void *L) {
   if (type(L, 1) != 4) return response(L, false, "Expected a fixed API command");
   const char *name = str(L, 1);
-  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.11");
+  if (!std::strcmp(name, "version")) return response(L, true, "zBoxBridge 0.1.13");
   if (!std::strcmp(name, "capabilities")) {
-    response(L, true, "zBoxBridge 0.1.11");
-    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 10 : 3);
-    return 3;
+    response(L, true, "zBoxBridge 0.1.13");
+    // Contract 11 adds game objects, 12 the nearest-object search; the jump observer's state is reported
+    // separately instead of downgrading the whole contract when it fails.
+    at<PushNumber>(0x006F3810)(L, 12);
+    at<PushNumber>(0x006F3810)(L, jumpObserverReady ? 1 : 0);
+    return 4;
   }
   if (!std::strcmp(name, "status")) {
     char detail[180]{};
-    sprintf_s(detail, "zBoxBridge 0.1.11; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
+    sprintf_s(detail, "zBoxBridge 0.1.13; calls=%lu; last=%s; result=%d; jumps=%u; observer=%ld/%ld", calls, lastCommand, lastResult, jumpSequence(), jumpObserverReady, jumpObserverStatus);
     return response(L, true, detail);
   }
   if (!std::strcmp(name,"RefreshActivity")) {
@@ -355,6 +438,47 @@ int __fastcall bridge(void *L) {
     InterlockedExchange(&busy, 0);
     ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
     return response(L, result, result ? "Heading matched" : "Heading update failed");
+  }
+  if (!std::strcmp(name, "MouseoverObject")) {
+    uint64_t guid = 0; float position[3]{};
+    if (!mouseoverObject(guid, position)) return response(L, false, "No game object under the cursor");
+    char text[20]{};
+    sprintf_s(text, "0x%016llX", guid);
+    at<PushNumber>(0x006F3810)(L, 1);
+    at<PushString>(0x006F3890)(L, text);
+    for (float value : position) at<PushNumber>(0x006F3810)(L, value);
+    return 5;
+  }
+  if (!std::strcmp(name, "NearestObject")) {
+    float point[3]{};
+    for (int i=0; i<3; ++i) {
+      if (type(L, i+2) != 3) return response(L, false, "Expected world XYZ");
+      const double value = at<ToNumber>(0x006F3620)(L, i+2);
+      if (!std::isfinite(value) || std::fabs(value)>100000) return response(L, false, "Invalid point");
+      point[i] = static_cast<float>(value);
+    }
+    if (!number(L, 5, 0, 10)) return response(L, false, "Expected a search radius up to 10 yards");
+    const float radius = static_cast<float>(at<ToNumber>(0x006F3620)(L, 5));
+    uint64_t guid = 0; float position[3]{};
+    if (!nearestObject(point, radius, guid, position)) return response(L, false, "No game object near that point");
+    char text[20]{};
+    sprintf_s(text, "0x%016llX", guid);
+    at<PushNumber>(0x006F3810)(L, 1);
+    at<PushString>(0x006F3890)(L, text);
+    for (float value : position) at<PushNumber>(0x006F3810)(L, value);
+    return 5;
+  }
+  if (!std::strcmp(name, "InteractObject")) {
+    if (type(L, 2) != 4) return response(L, false, "Expected object GUID");
+    const char *guidText = str(L, 2);
+    if (!guidText || std::strlen(guidText) != 18 || guidText[0] != '0' || guidText[1] != 'x') return response(L, false, "Invalid object GUID");
+    char *end = nullptr;
+    const uint64_t guid = std::strtoull(guidText + 2, &end, 16);
+    if (!end || *end || InterlockedCompareExchange(&busy, 1, 0) != 0) return response(L, false, "Invalid or busy object interaction");
+    const bool result = interactObject(guid);
+    InterlockedExchange(&busy, 0);
+    ++calls; strncpy_s(lastCommand, name, _TRUNCATE); lastResult = result ? 0 : -1;
+    return response(L, result, result ? "Object use requested" : "Object is unavailable or out of range");
   }
   if (!std::strcmp(name, "InteractNPC")) {
     if (type(L, 2) != 4) return response(L, false, "Expected NPC GUID");

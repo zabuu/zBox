@@ -5,7 +5,7 @@ private test server. Control account 2 from account 1: remote action bars,
 spellbook, follow, movement, click-to-move, bags, equipment, talents, quests and NPCs.
 Choose Follow, Mirror movement, or Pet controls with explicit Follow/Assist/Attack.
 
-**Addon 0.10.2 | Native bridge 0.1.11 | Windows x86**
+**Addon 0.10.3 | Native bridge 0.1.11 | Windows x86**
 
 Update zBox on the driver and every follower. **Bridge 0.1.10 is required for
 trade/item destruction and multiple simultaneous local DLL connections.** Close
@@ -50,8 +50,8 @@ placed in the first empty traded slot. An existing trade with someone else is
 never replaced. Destroy opens a 20-second confirmation naming the character,
 item and stack count, then rechecks the exact item/slot/count on the follower.
 
-When your normal trade window is trading a connected follower, **Accept
-follower** requests acceptance on that character. It appears only for that
+When your normal trade window is trading a connected follower, **Follower
+Trade** (left of the Trade button) clicks Trade on that character. It appears only for that
 specific connection. Changes to either offer invalidate stale requests. A
 follower trading someone else opens an independent, class-bordered preview
 with both offers, money, acceptance state and Accept/Cancel controls.
@@ -79,7 +79,8 @@ when the bar contains several characters. Page arrows wrap **10 -> 1** and
 **1 -> 10**. Shift-drag swaps/moves entries; Shift-right-click removes an entry;
 Escape cancels a drag. For friendly-target skills such as heals and buffs,
 **left-click targets the driver (account 1)**, regardless of the cast-target
-mode; **right-click or Alt-click targets the skill's owner**. A normal keybind
+mode; **Alt-click targets the skill's owner** (right-click on a dock slot
+toggles autocast; right-click in the Spells/Actions page still targets the owner). A normal keybind
 uses the left-click behavior. Hostile skills keep the selected target mode.
 Self-only spells keep their normal behavior. Update and reload zBox on every
 linked client for these click rules; bridge 0.1.11 does not need replacing.
@@ -103,8 +104,77 @@ Update zBox and `/reload` on **every client**. Bridge **0.1.11 is unchanged**.
 
 ### Targeting and quiet feedback
 
-Cast modes are Main's target, Main character, Skill owner, Owner's target and
-Mouseover. For detected mouseover macros, zBox briefly supplies the driver's
+Click the cast-target button to open a dropdown with every mode: Main's target,
+Main character, Skill owner, Owner's target and Mouseover. Hover an entry for a
+description; the current mode is ticked. The choice is saved per character.
+
+**Mouseover** casts every skill, friendly or hostile, on the unit under your
+cursor, in the 3D world or on unit frames (Blizzard, pfUI and notgrid frames).
+The skill owner decides per skill: friendly skills use a hovered friend and
+otherwise go to the main; other skills use a hovered enemy and otherwise go to
+the main's target. Right-click or Alt-click still casts on the skill owner. Use
+it with zBox keybinds, because clicking a dock slot puts the cursor on the dock.
+Update zBox on every linked client (0.10.3); the bridge is unchanged.
+
+### Autocast
+
+**Right-click** a dock slot holding a linked character's skill to toggle
+autocast, like pet-bar autocast; the slot glows while it is on. While the main
+or the follower is in combat, the follower walks its autocast skills on the
+visible dock page from left to right and casts the first one that is off
+cooldown (including the global cooldown), usable, and has a valid target. It
+then waits for that cast before picking again, so put the most important skills
+leftmost. Hostile skills need a living, attackable target (the main's target in
+Main's target/Mouseover modes, the follower's own in Owner's target). Friendly
+skills go to the main, self-only skills need no target. A skill that does not go
+off, such as one out of range, is skipped for 1.5-2 s so the rest keep firing.
+Autocast reads each skill's tooltip (English client) to avoid waste: heals fire
+only when the main or the follower is below 90% health, on whichever is more
+hurt, and heals over time skip a target that already has them. Buffs go to
+whichever of the two is missing them, and self-buffs are not recast while
+active. DoTs and pure debuffs (stings, curses, Sunder Armor) are not reapplied
+while already on the target; stacking debuffs whose tooltip says "up to N
+times" (Sunder Armor) keep being applied until they reach N stacks, then are refreshed about 4 s before
+they expire, using the "Lasts N sec" duration and the time of the follower's own
+last application (1.12 has no aura timers). Direct-damage
+skills keep firing on cooldown. Auras are matched by icon, so a
+copy of the same spell from another player also counts. Skills whose tooltip
+cannot be read keep the plain on-cooldown behavior.
+Cast-time skills still pause follow while they cast. The driver's own skills do
+not autocast. Alt-click a dock slot now casts it on the skill owner (right-click
+did this before). Right-click in the Spells/Actions page is unchanged.
+
+#### Autocast conditions
+
+**Ctrl-right-click** a linked skill on the dock to open its condition editor.
+Type rules separated by spaces or commas; all of them must be true before the
+skill autocasts (on top of the smart checks above). The editor checks the text
+as you type, refuses to save typos, and saving a condition turns autocast on.
+**Clear** removes it. The dock tooltip shows the condition.
+
+| Rule | Meaning |
+| --- | --- |
+| `cp>=4` | owner has at least 4 combo points on its target (`combo` also works) |
+| `hp<50`, `mhp<70`, `php<50` | owner / main / owner's pet health % |
+| `thp<20` | enemy health % |
+| `mana>30`, `rage>=40`, `energy>=60` | owner mana %, raw rage, raw energy |
+| `tbuff:Frenzy\|Enrage` | enemy has a buff whose name contains Frenzy or Enrage |
+| `tdebuff:Sunder>=5` | enemy has Sunder with 5 or more stacks |
+| `buff:`, `debuff:` | aura on the owner |
+| `mbuff:`, `mdebuff:`, `pbuff:`, `pdebuff:` | aura on the main / owner's pet |
+| `behind`, `!behind` | owner is (not) behind the enemy, from the bridge's enemy position and facing |
+| `!tdebuff:Serpent_Sting` | `!` means the aura must be missing |
+
+Comparisons are `< <= > >= = ~=`. Aura names are case-insensitive partial
+matches read from the aura tooltips; write spaces as `_`. "Enemy" is the main's
+target, or the owner's own target in Owner's target mode. Examples:
+Eviscerate `cp>=4`; Tranquilizing Shot `tbuff:Frenzy|Enrage`; Execute `thp<20`;
+Hamstring `!tdebuff:Hamstring thp<30`; Backstab `behind`. If the bridge cannot
+report the enemy's position, `behind` and `!behind` both count as false.
+
+If account 2's Spells/Actions page does not arrive, the driver now asks for it
+again automatically (after 2 s over the local DLL link, 5 s over whispers, backing
+off to 15 s) until it loads. A busy send queue also no longer drops page snapshots. For detected mouseover macros, zBox briefly supplies the driver's
 mouseover (or the selected cast target) to the owner client and restores its
 previous mouseover afterward. This needs SetMouseoverUnit from Nampower/SuperWoW.
 Absent/unloaded units are rejected before a cast. Macro edits invalidate stale
@@ -167,6 +237,7 @@ The addon manager updates `bin/zBoxBridge.dll` in the addon checkout; it does
 not update the separate copy in the game root automatically. A `/reload` cannot
 replace a DLL already loaded by WoW.
 
+Bridge **0.1.13** adds click-to-use for game objects (chests, herbs, ore).
 This release needs bridge **0.1.10** for trade/item controls and multi-peer local IPC.
 Bridge 0.1.9 supports background activity.
 Bridge 0.1.8 on both clients supports local DLL communication.
@@ -324,8 +395,9 @@ The panel is **496 x 110** at **85% scale** by default, approximately 422 x 94 U
 units before the game's UI scale. Drag its background to move it. Status
 messages appear briefly below the panel instead of occupying a permanent row.
 While linked, **-** minimizes the dock to a persistent **zBox +** button; click
-it to restore. Escape and the panel keybinding also keep that restore button
-available. Once unlinked, **x** can close the panel completely.
+it to restore. The panel keybinding also keeps that restore button available.
+Escape no longer minimizes the panel; it only closes zBox popups such as More
+and Keys. Once unlinked, **x** can close the panel completely.
 
 - **More** opens actions, spells, bags, gear, talents, quests and NPCs on demand.
   Popouts open below the dock when space above is insufficient. They scale to
@@ -345,8 +417,27 @@ available. Once unlinked, **x** can close the panel completely.
   was active before the cast. Stop, manual movement and NPC controls cancel
   this resumption. Unknown macro cast times do not stop movement speculatively;
   actual cast/channel start events still acquire a movement hold.
+- **Formation tab** (the small icon tab on the panel's right edge) pops out
+  five formations for Follow: **Left** (back-left), **Center** (right behind,
+  the game's normal follow), **Right** (back-right), **Front** (in front, like a
+  shield) and **Random** (a new spot each time you start moving, anywhere
+  1.5-5 yards behind and up to 4 yards to either side). Followers walk to their
+  spot with native click-to-move (zBoxBridge 0.1.6+), turn with you, and face
+  your way once settled. Beyond 40 yards they use normal follow to catch up.
+  Changing formation while following applies right away.
 - **Move** arms a terrain click. Right-click or Escape cancels; a missed terrain
   trace keeps the picker open. **More > Move pad** has held direction buttons.
+  Clicking a friendly NPC instead sends the selected follower to walk up to it
+  and talk to it (vendor, trainer, quest giver, gossip) once within about 4.5
+  yards. If the click doesn't register the NPC under the cursor, target the NPC
+  with your main first; a click on the ground right beside it then counts.
+  While the picker is up, a ring drawn on the ground marks exactly where a
+  click lands: green for open ground, gold for an NPC the follower will talk to.
+  STOP or any new order cancels the walk. With zBoxBridge **0.1.13** the same
+  click also works on game objects: click a chest, barrel, herb, ore node, door
+  or mailbox (or the ground within 3 yards of it) and the follower walks over
+  and right-clicks it. The ring turns gold and says "Use" first. Older bridges treat those clicks
+  as ground moves. This needs zBox on both characters to be this version.
   The picker prefers zAPI's refreshed native ground cursor when it matches the
   screen cursor, with the calibrated terrain ray as fallback. Account 2 uses
   WoW's native point movement, followed by a precise correction if it stops short.
@@ -498,6 +589,9 @@ selling, buyback and repair controls are not included.
 While account 2 has a live pairing, bridge **0.1.9** refreshes the supported
 client's idle timestamp every 30 seconds on the game thread. This prevents the
 background client entering AFK without moving, jumping or changing its camera.
+Every command account 1 sends (casts, movement keys, follow, Mirror input,
+NPC clicks) also refreshes it immediately, at most every 2 s, so a follower you
+are actively driving is never marked AFK.
 An already-set AFK flag is cleared only if the unit API positively reports it.
 The lease stops on disconnect, loading, logout or pairing revocation. Account 1
 is unaffected. `/zbox awake off` on account 2 disables it; `awake on` restores it.

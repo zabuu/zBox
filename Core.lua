@@ -1,5 +1,5 @@
 -- WoW 1.12 / Lua 5.0. No received text is evaluated as Lua or a macro.
-zBox = { version = "0.10.2", prefix = "zBox2", cache = {}, clock = 0 }
+zBox = { version = "0.10.3", prefix = "zBox2", cache = {}, clock = 0 }
 local B = zBox
 local function validGUID(value) return type(value)=="string" and string.find(value,"^0x%x+$") end
 local protectedInputs = { UseAction = true, CastSpell = true, Jump = true,
@@ -103,8 +103,8 @@ function B:GetBridgeInfo()
   if self.bridgeInfo then return self.bridgeInfo end
   local info = { ready = false, label = "Bridge not loaded" }
   if type(zBoxNative) == "function" then
-    local ok, result, version, contract = pcall(zBoxNative, "capabilities")
-    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8 or contract == 9 or contract == 10) then
+    local ok, result, version, contract, observer = pcall(zBoxNative, "capabilities")
+    if ok and result == 1 and (contract == 2 or contract == 3 or contract == 4 or contract == 5 or contract == 6 or contract == 7 or contract == 8 or contract == 9 or contract == 10 or contract == 11 or contract == 12) then
       info.ready, info.label, info.version = true, "Native inputs " .. string.gsub(tostring(version), "zBoxBridge ", ""), version
       info.npc = contract >= 3
       info.mirror = contract >= 3
@@ -117,6 +117,18 @@ function B:GetBridgeInfo()
       info.trade = contract >= 9
       -- Stuck does not depend on the passive jump observer's availability.
       info.unstuck = contract >= 10 or version == "zBoxBridge 0.1.11"
+      -- Bridge 0.1.11 reports contract 3 whenever only its jump observer failed
+      -- to hook (another DLL patched that function first). Everything else in
+      -- the bridge still works, so do not fall back to whispers, no trades, etc.
+      if version == "zBoxBridge 0.1.11" and contract == 3 then
+        info.nativeMove, info.directWhisper, info.localIPC, info.activity = true, true, true, true
+        info.multiLocal, info.trade, info.unstuck = true, true, true
+        info.jumpObserverFailed = true
+      end
+      -- Contract 11 (0.1.12) adds game objects and reports the jump observer on its own.
+      info.objects = contract >= 11
+      info.nearestObjects = contract >= 12
+      if contract >= 11 and observer == 0 then info.jumpEvents, info.jumpObserverFailed = false, true end
     else
       info.label = "Bridge update required"
     end
@@ -290,10 +302,10 @@ end
 function B:Command(command, fields)
   if not self.connected or self.db.role ~= "control" then return false, "Not connected" end
   fields = fields or {}
-  if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
+  if command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "WALKUSE" or command == "AXIS" or command == "AXES" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
     self.mirrorPaused = true
   end
-  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
+  if command == "STOP" or command == "FOLLOW" or command == "PET" or command == "MOVETO" or command == "WALKUSE" or command == "TALK" or command == "NPC" or command=="QUESTLINK" then
     self.heldInputs, self.heldMask = {}, 0
     self.heldModifiers = {}
     if self.UI then self.UI.held = nil end
@@ -334,7 +346,30 @@ function B:Request(section, page)
   self.view, self.page = section, page
   if section == "actions" then self.actionPage = page end
   self.selection = nil
+  self.viewRequestAt, self.viewRetries = GetTime(), 0
   if self.connected then self:Send("VIEW", { section, page }, true) end
+end
+
+-- Snapshot views the driver draws from cache.view. Bags and NPC use their own caches.
+local retryViews = { actions = true, spells = true, gear = true, talents = true, quests = true }
+function B:ViewLoaded()
+  local view = self.cache and self.cache.view
+  return view and view.section == self.view and view.page == self.page
+end
+
+-- A snapshot can be lost (queue full, dropped whisper fragment, reconnect race).
+-- Nothing asked for it again, so the page stayed blank until an unrelated game
+-- event resent it. Re-request the visible page until it arrives.
+function B:ViewRetryTick(now)
+  if self.rosterBackground or not retryViews[self.view or ""] or self:ViewLoaded() then
+    self.viewRetries = 0; return
+  end
+  self.viewRequestAt = self.viewRequestAt or now
+  local base = self.localReady and 2 or 5 -- whisper snapshots take seconds to arrive
+  local wait = math.min(15, base * ((self.viewRetries or 0) + 1))
+  if now - self.viewRequestAt < wait then return end
+  self.viewRequestAt, self.viewRetries = now, (self.viewRetries or 0) + 1
+  self:Send("VIEW", { self.view, self.page or 1 }, true)
 end
 
 function B:Initialize()

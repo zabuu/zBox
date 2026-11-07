@@ -62,6 +62,14 @@ function B:SetView(section, page)
   if not limits[section] then return end
   page = integer(page, 1, limits[section])
   if not page then return end
+  local current = self.activeView
+  if current and current.section == section and current.page == page then
+    -- A repeat request for the same page is the driver's retry. Do not cancel a
+    -- snapshot that is still being sent; just make sure another one follows.
+    self.viewDirty = true
+    if section == "actions" then self.actionPage, self.barDirty = page, true end
+    return
+  end
   self.activeView, self.viewDirty = { section = section, page = page }, true
   if section == "actions" then self.actionPage, self.barDirty = page, true end
   -- Drop unsent state from the previous view. Commands/heartbeats use another queue.
@@ -151,8 +159,9 @@ function B:SendView(override)
     presentation = self:NPCPresentation()
   end
   self.snapshotID = (self.snapshotID or 0) + 1
-  self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n"), self:Encode(presentation) }, section=="npc")
-  if section == "actions" then self.barDirty = false end
+  local id = self:Send("STATE", { "snapshot", section, page, self.snapshotID, title, maximum, table.concat(rows, "\n"), self:Encode(presentation) }, section=="npc")
+  if section == "actions" and id then self.barDirty = false end
+  return id
 end
 
 function B:AcceptState(fields, sourceID)

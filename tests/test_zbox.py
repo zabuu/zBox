@@ -11,7 +11,7 @@ import random
 import xml.etree.ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
-FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Activity.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Stack.lua", "Pet.lua", "Quests.lua", "QuestProgress.lua", "NPC.lua", "QuestTogether.lua", "Agent.lua", "UI.lua", "Views.lua", "NPCWindow.lua", "Trade.lua", "FreeBars.lua", "Vitals.lua", "Targeting.lua", "Bars.lua", "Roster.lua"]
+FILES = ["Core.lua", "NPCGuard.lua", "Protocol.lua", "Damage.lua", "Activity.lua", "Movement.lua", "Casting.lua", "Controls.lua", "Cooldowns.lua", "Mirror.lua", "Stack.lua", "Pet.lua", "Quests.lua", "QuestProgress.lua", "NPC.lua", "QuestTogether.lua", "Agent.lua", "UI.lua", "Views.lua", "NPCWindow.lua", "Trade.lua", "FreeBars.lua", "Vitals.lua", "Targeting.lua", "Bars.lua", "Roster.lua", "TargetMenu.lua", "Autocast.lua", "Use.lua", "Reticle.lua", "Formation.lua"]
 BOOT = r'''
 clock=10; realm="Private Test"; grouped=true; alive=true; combat=false
 getglobal=function(n) return _G[n] end

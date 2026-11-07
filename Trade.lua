@@ -225,10 +225,16 @@ function B:TradeTick(now)
   return
  end
  if TradeFrame and not self.tradeButton then
-  self.tradeButton=button(TradeFrame,"Accept follower",20,-390,135,function()
+  self.tradeButton=button(TradeFrame,"Follower Trade",20,-390,120,function()
    local f=B.tradeButton;local s=f.snapshot
    if s then local ok,why=B:PeerCommand(f.owner,"TRADEACCEPT",{s.fields[10],s.fields[3]});if not ok then B:Notify(why) end end
   end)
+  -- Sit beside the Trade button so skinned trade windows (pfUI) keep it clear of the item slots.
+  local anchor=getglobal("TradeFrameTradeButton")
+  if anchor then
+   local b=self.tradeButton;b:ClearAllPoints();b:SetPoint("RIGHT",anchor,"LEFT",-6,0)
+   b:SetFrameLevel(anchor:GetFrameLevel()+1)
+  end
  end
  local match
  local target=TradeFrame and TradeFrame:IsShown() and partner()
